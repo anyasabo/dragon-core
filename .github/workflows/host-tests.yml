@@ -42,6 +42,9 @@ jobs:
       - name: Check peer wire contract
         run: tests/run_peer_contract_host_test.sh
 
+      - name: Run syslog format and queue tests
+        run: tests/run_syslog_host_test.sh
+
       - name: Check family SPA syntax and capability contract
         run: node tests/check_ui.mjs
 

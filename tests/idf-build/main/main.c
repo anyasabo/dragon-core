@@ -7,6 +7,7 @@
 #include "dc_portal.h"
 #include "dc_prusa.h"
 #include "dc_source.h"
+#include "dc_syslog.h"
 #include "dc_ui.h"
 #include "dc_wifi.h"
 
@@ -53,4 +54,8 @@ void app_main(void)
     (void)dc_ui_spa_asset();
     (void)dc_portal_start(NULL);
     (void)dc_portal_httpd();
+    // No server: dc_syslog_start() returns ESP_ERR_INVALID_ARG and installs no hook.
+    dc_syslog_stats_t syslog_stats = {0};
+    (void)dc_syslog_start(&(dc_syslog_config_t){ .server = NULL });
+    dc_syslog_stats(&syslog_stats);
 }

@@ -16,6 +16,7 @@ Product repositories own GPIO mappings, sensors, actuators, safety policy, and t
 | `dc_mqtt` | Shared ESP-MQTT session lifecycle, LWT, and event callbacks |
 | `dc_ui` | Embedded, capability-aware browser SPA shared by Dragon products |
 | `dc_portal` | Shared HTTP server, provisioning API, captive DNS, OTA, logs, and recovery routes |
+| `dc_syslog` | ESP-IDF log lines as RFC 5424 syslog over UDP, with drop counters |
 
 The initial service extraction deliberately started with components already proven in
 DragonBreath and free of board/sensor/actuator dependencies. `dc_ui` owns the static
