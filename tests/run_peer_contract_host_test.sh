@@ -3,7 +3,7 @@ set -eu
 root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 out="${TMPDIR:-/tmp}/dragon-core-dc-peer-contract-test"
 
-cc -std=c11 -Wall -Wextra -Werror \
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror ${HOST_TEST_CFLAGS:-} \
   -I"$root/tests/stubs" \
   -I"$root/components/dc_peer/include" \
   "$root/tests/dc_peer_contract_host_test.c" \
