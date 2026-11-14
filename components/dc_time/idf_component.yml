@@ -1,0 +1,5 @@
+version: "0.1.0"
+description: SNTP wall clock and RFC 3339 timestamps for Dragon firmware logs
+license: MIT
+dependencies:
+  idf: ">=5.3"
