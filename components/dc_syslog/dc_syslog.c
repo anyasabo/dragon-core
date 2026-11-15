@@ -14,6 +14,13 @@
 #include "freertos/task.h"
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
+#include "sdkconfig.h"
+
+#if CONFIG_LOG_VERSION_2
+// Log v2 calls the vprintf hook several times for each line (prefix, message,
+// reset and newline). dc_syslog needs one call for each line. See dc_syslog.h.
+#error "dc_syslog supports only ESP-IDF log v1. Set CONFIG_LOG_VERSION_1=y."
+#endif
 
 // The sender task must not log: its lines would come back into the queue. Only
 // dc_syslog_start() logs, before the hook is installed.

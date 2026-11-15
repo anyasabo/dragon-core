@@ -10,23 +10,54 @@
 // can allocate for %f. That is also true for all other log paths.
 //
 // A sender task (priority 1) takes the lines from the queue and sends each line
-// as one UDP datagram. If the network is down, the lines stay in the queue
-// until the queue is full. The task does not log, and the hook ignores lines
-// from the task, so the log cannot loop.
+// as one UDP datagram. The station interface (WIFI_STA_DEF) must have an
+// address for a send. Until then, the lines stay in the queue until the queue
+// is full. The sender looks up a host name again every 10 minutes and after an
+// error.
 //
 // Message format (see dc_syslog_format.h):
 //   <PRI>1 TIMESTAMP HOSTNAME APP-NAME TAG - [dc@32473 seq="N" up="MS"] MSG
 // seq increments for each log line, also for dropped lines. A gap in seq on
 // the server shows dropped lines. up is the uptime in ms (esp_timer).
+// Lines can arrive out of seq order. Two tasks can log at the same time, and
+// UDP does not keep the order. If the order is important, sort by seq on the
+// server.
 //
 // TIMESTAMP: dc_syslog does not depend on dc_time. The product can set
 // dc_syslog_config_t.timestamp to dc_time_format_now (same signature). Without
 // a callback, or before the clock is synced, TIMESTAMP is "-".
 //
-// RAM: the slots use depth * (slot_size + 56, rounded up to 8) bytes, the datagram buffer
-// slot_size + 256 bytes, and the task stack DC_SYSLOG_TASK_STACK bytes. All of
-// it comes from the heap at start. With the default sizes (16 slots of 192
-// bytes), the total is approximately 8 KB, plus 236 bytes of static RAM.
+// LIMITS
+// - ESP-IDF log v1 only. Log v1 calls the hook one time for each line. Log v2
+//   (CONFIG_LOG_VERSION_2, ESP-IDF 5.5 and later) calls it three times: the
+//   prefix, the message, and the color reset with the newline. If
+//   CONFIG_LOG_VERSION_2 is set, dc_syslog stops the build with #error. The
+//   default of ESP-IDF v6.1 is still log v1 (components/log/Kconfig:
+//   default LOG_VERSION_1).
+// - Install window: esp_log_set_vprintf() installs the new hook and gives the
+//   previous hook in one call. Another task can log in the few instructions
+//   before dc_syslog keeps the previous hook. Then that line goes to vprintf()
+//   (UART), not to the previous hook (dc_evlog). The API gives no way to read
+//   the previous hook first.
+// - Log loop: the hook ignores lines from ISRs and from the sender task. But a
+//   send can make other tasks log, for example the Wi-Fi or lwIP tasks with a
+//   verbose or debug log level. Each such line makes a new datagram, which can
+//   make a new line. With the default log levels this does not occur. If you
+//   set Wi-Fi or lwIP to debug, do not use dc_syslog at the same time.
+//
+// WHY PUSH, AND NOT A CURSOR ON THE dc_evlog RING (draft PR #69)
+// - Each syslog server can receive it (Alloy, rsyslog, syslog-ng). No HTTP
+//   poller is necessary on the server.
+// - Each line keeps its severity, sequence number and timestamp as fields.
+// - If the ring wraps between two polls, a poller loses lines. dc_syslog
+//   counts each lost line, and the seq gap shows where.
+// - The two can be used together. The /console ring stays for a browser view.
+//
+// RAM: the slots use depth * (slot_size + 56, rounded up to 8) bytes, the
+// datagram buffer slot_size + 256 bytes, and the task stack DC_SYSLOG_TASK_STACK
+// bytes. All of it comes from the heap at start. With the default sizes (16
+// slots of 192 bytes), the total is approximately 8 KB, plus 236 bytes of
+// static RAM.
 
 #include <stdbool.h>
 #include <stddef.h>
