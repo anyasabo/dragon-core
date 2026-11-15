@@ -606,7 +606,7 @@ static const char *sta_disc_reason_hint(uint8_t reason)
     case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
         return "wrong Wi-Fi password";
     case WIFI_REASON_BEACON_TIMEOUT:
-    case WIFI_REASON_ASSOC_EXPIRE:
+    case WIFI_REASON_DISASSOC_DUE_TO_INACTIVITY: // was WIFI_REASON_ASSOC_EXPIRE (removed in ESP-IDF 6)
         return "weak signal \xE2\x80\x94 move the device closer to the router";
     default:
         return NULL;
