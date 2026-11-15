@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "dc_portal_dns.h"
+#include "dc_portal_dns_answer.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -15,22 +16,6 @@ static volatile TaskHandle_t s_task;
 static int s_sock = -1;
 static uint32_t s_redirect_ip;
 static volatile bool s_running;
-
-typedef struct __attribute__((packed)) {
-    uint16_t id, flags, qdcount, ancount, nscount, arcount;
-} dns_hdr_t;
-
-static size_t qname_length(const uint8_t *buf, size_t len)
-{
-    size_t i = 0;
-    while (i < len) {
-        uint8_t n = buf[i];
-        if (n == 0) return i + 1;
-        if (n >= 64) return 0;
-        i += n + 1;
-    }
-    return 0;
-}
 
 static void dns_task(void *arg)
 {
@@ -59,27 +44,10 @@ static void dns_task(void *arg)
         socklen_t src_len = sizeof(src);
         int received = recvfrom(s_sock, buf, sizeof(buf), 0,
                                 (struct sockaddr *)&src, &src_len);
-        if (received < (int)sizeof(dns_hdr_t)) continue;
-        dns_hdr_t *hdr = (dns_hdr_t *)buf;
-        if ((ntohs(hdr->flags) & 0x8000) || ntohs(hdr->qdcount) == 0) continue;
-        size_t off = sizeof(*hdr);
-        size_t qn = qname_length(buf + off, (size_t)received - off);
-        if (!qn || off + qn + 4 > (size_t)received) continue;
-        if (buf[off + qn] != 0 || buf[off + qn + 1] != 1 ||
-            buf[off + qn + 2] != 0 || buf[off + qn + 3] != 1) continue;
-        hdr->flags = htons(0x8180);
-        hdr->qdcount = htons(1);
-        hdr->ancount = htons(1);
-        hdr->nscount = hdr->arcount = 0;
-        size_t response_len = off + qn + 4;
-        uint8_t answer[] = {
-            0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4,
-            (uint8_t)s_redirect_ip, (uint8_t)(s_redirect_ip >> 8),
-            (uint8_t)(s_redirect_ip >> 16), (uint8_t)(s_redirect_ip >> 24),
-        };
-        if (response_len + sizeof(answer) > sizeof(buf)) continue;
-        memcpy(buf + response_len, answer, sizeof(answer));
-        sendto(s_sock, buf, response_len + sizeof(answer), 0,
+        size_t answer_len = dc_portal_dns_answer(buf, received > 0 ? (size_t)received : 0,
+                                                 sizeof(buf), s_redirect_ip);
+        if (answer_len == 0) continue;
+        sendto(s_sock, buf, answer_len, 0,
                (struct sockaddr *)&src, src_len);
     }
     close(s_sock);
