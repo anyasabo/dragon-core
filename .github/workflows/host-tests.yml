@@ -36,6 +36,9 @@ jobs:
       - name: Test console snapshot streaming
         run: tests/run_console_stream_host_test.sh
 
+      - name: Test console line assembly for ESP-IDF Log V2
+        run: tests/run_evlog_line_host_test.sh
+
       - name: Run generic PID tests
         run: tests/run_pid_host_test.sh
 
@@ -64,3 +67,17 @@ jobs:
           target: esp32c3
           path: .
           command: tools/idf-build.sh tests/idf-build esp32c3 build
+
+      # Log V2 compiles the dc_evlog line assembly. Log V2 needs ESP-IDF 5.5
+      # or later. This build has its own build directory and sdkconfig.
+      - name: Build all components with Log V2 (ESP-IDF v5.5, ESP32-C3)
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v5.5
+          target: esp32c3
+          path: .
+          command: >-
+            tools/idf-build.sh tests/idf-build esp32c3 build-log-v2
+            -DSDKCONFIG="$PWD/tests/idf-build/build-log-v2/sdkconfig"
+            -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.log-v2"
+            build
