@@ -90,4 +90,3 @@ jobs:
             tools/idf-build.sh tests/idf-build esp32c3 build-log-v2
             -DSDKCONFIG="$PWD/tests/idf-build/build-log-v2/sdkconfig"
             -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.log-v2"
-            build
