@@ -1,4 +1,5 @@
 #include "dc_wifi.h"
+#include "dc_wifi_policy.h"
 
 #include "esp_event.h"
 #include "esp_idf_version.h"
@@ -552,6 +553,11 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         // Only auto-connect if we're actually trying to be a station.
         if (s_state == DC_WIFI_STATE_STA_CONNECTING) esp_wifi_connect();
     } else if (id == WIFI_EVENT_STA_CONNECTED) {
+        if (!dc_wifi_sta_link_allowed(s_state)) {
+            ESP_LOGW(TAG, "late STA association while in the setup portal; dropping it");
+            esp_wifi_disconnect();
+            return;
+        }
         // L2 associated. CONSTRAINED arms the no-DHCP-IP watchdog until GOT_IP fires
         // (drops a node that admits but won't lease); STANDARD relies on the driver's
         // own association/DHCP timeout, matching pre-0.30 behavior.
@@ -584,6 +590,12 @@ static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data
 {
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         no_ip_watch_stop();
+        if (!dc_wifi_sta_link_allowed(s_state)) {
+            // Keep the portal state: dc_portal treats it as "no LAN, no auth".
+            ESP_LOGW(TAG, "late STA IP while in the setup portal; dropping it");
+            esp_wifi_disconnect();
+            return;
+        }
         ip_event_got_ip_t *evt = (ip_event_got_ip_t *)data;
         ESP_LOGI(TAG, "got IP " IPSTR, IP2STR(&evt->ip_info.ip));
         s_retry = 0;
@@ -748,12 +760,13 @@ esp_err_t dc_wifi_start(void)
             if (ap_cfg.mode == DC_WIFI_AP_TEMP) schedule_ap_temp_shutdown();
         } else {
             s_sta_failed = true;   // let the setup page explain why the join failed
-            if (ap_cfg.mode == DC_WIFI_AP_OFF) {
+            dc_wifi_boot_fail_action_t action = dc_wifi_boot_fail_action(ap_cfg.mode);
+            if (action == DC_WIFI_BOOT_FAIL_STA_ONLY) {
                 ESP_LOGW(TAG, "STA never came up (bits=0x%x); AP mode OFF — no portal "
                               "(recover via USB --erase-nvs or the Power+Auto combo)",
                          (unsigned)bits);
                 // Leave s_state == STA_CONNECTING; no AP was brought up.
-            } else if (ap_cfg.mode == DC_WIFI_AP_FALLBACK) {
+            } else if (action == DC_WIFI_BOOT_FAIL_START_PORTAL) {
                 // Ran STA-only (no concurrent AP), so nothing is on air yet —
                 // bring up the recovery portal now that STA has failed.
                 ESP_LOGW(TAG, "STA never came up (bits=0x%x); FALLBACK — starting "
@@ -765,6 +778,12 @@ esp_err_t dc_wifi_start(void)
                 ESP_LOGW(TAG, "STA never came up (bits=0x%x); the concurrent AP is the "
                               "fallback portal", (unsigned)bits);
                 s_state = DC_WIFI_STATE_AP_PORTAL;
+                // A timeout can leave an association or DHCP still in flight. Stop
+                // it: the portal accepts provisioning without auth, so the device
+                // must not join the LAN in this state. With s_state set first, the
+                // disconnect handler does not retry. on_wifi_event/on_ip_event drop
+                // a late join that races this call.
+                esp_wifi_disconnect();
             }
         }
     } else {
