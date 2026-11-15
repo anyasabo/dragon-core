@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 #include "dc_portal.h"
+#include "dc_portal_deadline.h"
 #include "dc_portal_console_stream.h"
 #include "dc_portal_dns.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 #include "dc_evlog.h"
 #include "dc_ui.h"
 #include "dc_wifi.h"
@@ -15,10 +17,12 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
+#include "lwip/sockets.h"
 #include "mbedtls/sha256.h"
 
 // Minimum stack for the portal's HTTP server task. See dc_portal_start().
@@ -28,6 +32,8 @@ static const char *TAG = "dc_portal";
 static httpd_handle_t s_httpd;
 static dc_portal_config_t s_config;
 static bool s_ap_mode;
+static httpd_open_func_t s_product_open_fn;
+static int64_t s_recv_wait_us;
 
 static esp_err_t send_json(httpd_req_t *req, cJSON *root)
 {
@@ -452,6 +458,92 @@ static esp_err_t guard_operation(httpd_req_t *req, dc_portal_operation_t operati
     return err;
 }
 
+// ---- request deadline ---------------------------------------------------------
+// Each socket gets a dc_portal_deadline_t as its transport context, and the
+// receive and send functions below. See dc_portal_deadline.h.
+
+static int sock_err(void)
+{
+    switch (errno) {
+    case EAGAIN:
+#if EWOULDBLOCK != EAGAIN
+    case EWOULDBLOCK:
+#endif
+    case EINTR:
+        return HTTPD_SOCK_ERR_TIMEOUT;
+    case EINVAL:
+    case EBADF:
+    case EFAULT:
+    case ENOTSOCK:
+        return HTTPD_SOCK_ERR_INVALID;
+    default:
+        return HTTPD_SOCK_ERR_FAIL;
+    }
+}
+
+// Wait at most wait_us for data on the socket. Return false if no data came.
+static bool sock_readable(int sockfd, int64_t wait_us)
+{
+    if (wait_us <= 0) return false;
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(sockfd, &readable);
+    struct timeval tv = { .tv_sec = wait_us / 1000000, .tv_usec = wait_us % 1000000 };
+    // On a select() error, let recv() give the error.
+    return select(sockfd + 1, &readable, NULL, NULL, &tv) != 0;
+}
+
+static int deadline_recv(httpd_handle_t hd, int sockfd, char *buf, size_t buf_len, int flags)
+{
+    if (!buf) return HTTPD_SOCK_ERR_INVALID;
+    dc_portal_deadline_t *d = httpd_sess_get_transport_ctx(hd, sockfd);
+    if (d) {
+        int64_t left = dc_portal_deadline_left(d, esp_timer_get_time(), DC_PORTAL_REQUEST_LIMITS);
+        // recv() can wait for recv_wait_timeout. If less time is left, wait
+        // only for the time that is left.
+        if (left < s_recv_wait_us && !sock_readable(sockfd, left)) {
+            ESP_LOGW(TAG, "socket %d: request too slow, close it", sockfd);
+            return HTTPD_SOCK_ERR_FAIL;
+        }
+    }
+    int got = recv(sockfd, buf, buf_len, flags);
+    if (got < 0) return sock_err();
+    if (d) dc_portal_deadline_on_recv(d, got);
+    return got;
+}
+
+static int deadline_send(httpd_handle_t hd, int sockfd, const char *buf, size_t buf_len, int flags)
+{
+    if (!buf) return HTTPD_SOCK_ERR_INVALID;
+    // An event stream sends from its own task. The flag write is atomic.
+    dc_portal_deadline_t *d = httpd_sess_get_transport_ctx(hd, sockfd);
+    if (d) dc_portal_deadline_on_send(d);
+    int sent = send(sockfd, buf, buf_len, flags);
+    return sent < 0 ? sock_err() : sent;
+}
+
+static esp_err_t session_open(httpd_handle_t hd, int sockfd)
+{
+    if (s_product_open_fn) {
+        esp_err_t err = s_product_open_fn(hd, sockfd);
+        if (err != ESP_OK) return err;
+    }
+    dc_portal_deadline_t *d = calloc(1, sizeof(*d));
+    if (!d) return ESP_ERR_NO_MEM;
+    // httpd frees the context when it closes the session.
+    httpd_sess_set_transport_ctx(hd, sockfd, d, free);
+    httpd_sess_set_recv_override(hd, sockfd, deadline_recv);
+    httpd_sess_set_send_override(hd, sockfd, deadline_send);
+    return ESP_OK;
+}
+
+// Let the request deadline move with the received data (OTA upload).
+static void allow_progress(httpd_req_t *req)
+{
+    dc_portal_deadline_t *d = httpd_sess_get_transport_ctx(req->handle, httpd_req_to_sockfd(req));
+    if (d) dc_portal_deadline_allow_progress(d);
+}
+
 static esp_err_t update_post(httpd_req_t *req)
 {
     if (require_auth(req) != ESP_OK) return ESP_OK;
@@ -463,6 +555,8 @@ static esp_err_t update_post(httpd_req_t *req)
     esp_ota_handle_t update = 0;
     esp_err_t err = esp_ota_begin(partition, OTA_WITH_SEQUENTIAL_WRITES, &update);
     if (err != ESP_OK) return json_error(req, "500 Internal Server Error", esp_err_to_name(err));
+    // An image is large. Progress mode gives 20 s plus 1 s for each 1 KB.
+    allow_progress(req);
     static uint8_t buffer[1024];
     mbedtls_sha256_context sha;
     mbedtls_sha256_init(&sha);
@@ -583,6 +677,12 @@ esp_err_t dc_portal_start(const dc_portal_config_t *config)
     // own httpd_config keeps it. Must stay AFTER the httpd_config copy above.
     if (http.stack_size < DC_PORTAL_MIN_HTTPD_STACK)
         http.stack_size = DC_PORTAL_MIN_HTTPD_STACK;
+    // Each session gets the request deadline. A product open_fn still runs
+    // first. The product must not set a transport context or a receive or
+    // send function of its own.
+    s_product_open_fn = http.open_fn;
+    http.open_fn = session_open;
+    s_recv_wait_us = (int64_t)http.recv_wait_timeout * 1000000;
     esp_err_t err = httpd_start(&s_httpd, &http);
     if (err != ESP_OK) return err;
 
@@ -635,6 +735,7 @@ esp_err_t dc_portal_stop(void)
     if (s_httpd) httpd_stop(s_httpd);
     s_httpd = NULL;
     memset(&s_config, 0, sizeof(s_config));
+    s_product_open_fn = NULL;
     return ESP_OK;
 }
 

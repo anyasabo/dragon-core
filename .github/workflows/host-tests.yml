@@ -36,6 +36,9 @@ jobs:
       - name: Test console snapshot streaming
         run: tests/run_console_stream_host_test.sh
 
+      - name: Test the HTTP request deadline
+        run: tests/run_portal_deadline_host_test.sh
+
       - name: Run generic PID tests
         run: tests/run_pid_host_test.sh
 

@@ -21,6 +21,15 @@ Products supply identity, their API route table, and optional callbacks:
   allow an existing API implementation to register routes without owning the
   server lifecycle.
 
+The HTTP server has one task and serves one request at a time. `dc_portal`
+gives each socket a request deadline (`dc_portal_deadline.h`). A request must
+arrive in 20 s from its first byte, with its headers and its body. If it is
+slower, the server closes the socket. An OTA upload gets 1 s more for each
+1 KB that arrives. The deadline does not stop an idle keep-alive socket or an
+event stream. `dc_portal` uses the transport context and the receive and send
+functions of each session for this. A product must not set them, but it can
+set `open_fn` in its `httpd_config`.
+
 The provisioning contract is versioned separately at
 `GET /api/v1/provisioning`. Product API v2 state and command semantics are not
 interpreted by core; the supplied route table continues to own them.
