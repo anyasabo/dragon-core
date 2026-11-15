@@ -10,6 +10,7 @@
 #include "dc_ui.h"
 #include "dc_wifi.h"
 #include "esp_app_desc.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_ota_ops.h"
@@ -19,7 +20,50 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/inet.h"
+
+// ESP-IDF 6 uses Mbed TLS 4, which makes the mbedtls_sha256_* API private.
+// Use PSA Crypto there. ESP-IDF 5 keeps the Mbed TLS API, which does not
+// need psa_crypto_init() and does not link the PSA core.
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+#include "psa/crypto.h"
+typedef psa_hash_operation_t ota_sha256_t;
+static bool ota_sha256_start(ota_sha256_t *sha)
+{
+    *sha = psa_hash_operation_init();
+    return psa_hash_setup(sha, PSA_ALG_SHA_256) == PSA_SUCCESS;
+}
+static void ota_sha256_update(ota_sha256_t *sha, const uint8_t *data, size_t len)
+{
+    (void)psa_hash_update(sha, data, len); // an error makes finish fail
+}
+static bool ota_sha256_finish(ota_sha256_t *sha, uint8_t digest[32])
+{
+    size_t len = 0;
+    bool ok = psa_hash_finish(sha, digest, 32, &len) == PSA_SUCCESS && len == 32;
+    psa_hash_abort(sha);
+    return ok;
+}
+static void ota_sha256_abort(ota_sha256_t *sha) { psa_hash_abort(sha); }
+#else
 #include "mbedtls/sha256.h"
+typedef mbedtls_sha256_context ota_sha256_t;
+static bool ota_sha256_start(ota_sha256_t *sha)
+{
+    mbedtls_sha256_init(sha);
+    return mbedtls_sha256_starts(sha, 0) == 0;
+}
+static void ota_sha256_update(ota_sha256_t *sha, const uint8_t *data, size_t len)
+{
+    (void)mbedtls_sha256_update(sha, data, len);
+}
+static bool ota_sha256_finish(ota_sha256_t *sha, uint8_t digest[32])
+{
+    bool ok = mbedtls_sha256_finish(sha, digest) == 0;
+    mbedtls_sha256_free(sha);
+    return ok;
+}
+static void ota_sha256_abort(ota_sha256_t *sha) { mbedtls_sha256_free(sha); }
+#endif
 
 // Minimum stack for the portal's HTTP server task. See dc_portal_start().
 #define DC_PORTAL_MIN_HTTPD_STACK 8192
@@ -464,25 +508,23 @@ static esp_err_t update_post(httpd_req_t *req)
     esp_err_t err = esp_ota_begin(partition, OTA_WITH_SEQUENTIAL_WRITES, &update);
     if (err != ESP_OK) return json_error(req, "500 Internal Server Error", esp_err_to_name(err));
     static uint8_t buffer[1024];
-    mbedtls_sha256_context sha;
-    mbedtls_sha256_init(&sha);
-    mbedtls_sha256_starts(&sha, 0);
+    ota_sha256_t sha;
+    bool sha_ok = ota_sha256_start(&sha);
     int remaining = req->content_len;
     while (remaining > 0) {
         int got = httpd_req_recv(req, (char *)buffer,
                                  remaining < (int)sizeof(buffer) ? remaining : (int)sizeof(buffer));
         if (got == HTTPD_SOCK_ERR_TIMEOUT) continue;
         if (got <= 0 || esp_ota_write(update, buffer, (size_t)got) != ESP_OK) {
-            mbedtls_sha256_free(&sha);
+            ota_sha256_abort(&sha);
             esp_ota_abort(update);
             return json_error(req, "500 Internal Server Error", "OTA receive/write failed");
         }
-        mbedtls_sha256_update(&sha, buffer, (size_t)got);
+        ota_sha256_update(&sha, buffer, (size_t)got);
         remaining -= got;
     }
     uint8_t digest[32];
-    mbedtls_sha256_finish(&sha, digest);
-    mbedtls_sha256_free(&sha);
+    sha_ok = ota_sha256_finish(&sha, digest) && sha_ok;
     err = esp_ota_end(update);
     if (err != ESP_OK) return json_error(req, "400 Bad Request", esp_err_to_name(err));
     esp_app_desc_t image = {0};
@@ -503,8 +545,8 @@ static esp_err_t update_post(httpd_req_t *req)
     }
     err = esp_ota_set_boot_partition(partition);
     if (err != ESP_OK) return json_error(req, "500 Internal Server Error", esp_err_to_name(err));
-    char sha_hex[65];
-    for (size_t i = 0; i < sizeof(digest); ++i)
+    char sha_hex[65] = "";
+    for (size_t i = 0; sha_ok && i < sizeof(digest); ++i)
         snprintf(&sha_hex[i * 2], 3, "%02x", digest[i]);
     cJSON *reply = cJSON_CreateObject();
     cJSON_AddBoolToObject(reply, "ok", true);
