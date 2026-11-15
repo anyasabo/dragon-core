@@ -4,9 +4,12 @@
 #include <sys/time.h>
 
 #include "esp_log.h"
+#include "esp_netif.h"
+#include "esp_netif_net_stack.h"
 #include "esp_netif_sntp.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "lwip/dhcp.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "dc_time";
@@ -44,6 +47,33 @@ static void on_sync(struct timeval *tv)
     if (first) ESP_LOGI(TAG, "time synced: %s", ts);
     else ESP_LOGD(TAG, "time synced: %s", ts);
 }
+
+#if CONFIG_LWIP_DHCP_GET_NTP_SRV
+// Runs in the TCP/IP task (esp_netif_tcpip_exec).
+static esp_err_t dhcp_renew_api(void *ctx)
+{
+    struct netif *netif = esp_netif_get_netif_impl((esp_netif_t *)ctx);
+    if (netif == NULL || netif_dhcp_data(netif) == NULL) return ESP_ERR_INVALID_STATE;
+    return dhcp_renew(netif) == ERR_OK ? ESP_OK : ESP_FAIL;
+}
+
+// lwIP gives option 42 to SNTP only from a DHCP reply after
+// sntp_servermode_dhcp(1). If the station already has its lease (dc_wifi
+// waits for it), ask for a renewal now. Otherwise the server comes with the
+// next renewal, often hours later.
+static void dhcp_renew_if_bound(void)
+{
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ip;
+    esp_netif_dhcp_status_t st;
+    if (sta == NULL || esp_netif_get_ip_info(sta, &ip) != ESP_OK || ip.ip.addr == 0 ||
+        esp_netif_dhcpc_get_status(sta, &st) != ESP_OK || st != ESP_NETIF_DHCP_STARTED)
+        return;   // no lease yet: the first DHCP reply brings option 42
+    esp_err_t err = esp_netif_tcpip_exec(dhcp_renew_api, sta);
+    if (err == ESP_OK) ESP_LOGI(TAG, "DHCP renewal requested for the NTP server");
+    else ESP_LOGW(TAG, "DHCP renewal: %s", esp_err_to_name(err));
+}
+#endif
 
 // esp_timer one-shot: make a missing NTP server visible in the log.
 static void on_warn_timer(void *arg)
@@ -101,6 +131,9 @@ esp_err_t dc_time_start(const dc_time_config_t *cfg)
         return err;
     }
     s_started = true;
+#if CONFIG_LWIP_DHCP_GET_NTP_SRV
+    if (cfg->use_dhcp) dhcp_renew_if_bound();
+#endif
 
     const esp_timer_create_args_t warn = {
         .callback = on_warn_timer,
