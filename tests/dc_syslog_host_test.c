@@ -231,6 +231,40 @@ static void test_truncation(void)
     check("NULL output", dc_syslog_format(NULL, 10, &meta, NULL) == 0);
 }
 
+// Each header field at its maximum: the header must fit in DC_SYSLOG_HEADER_MAX
+// with room for " " and the NUL. Then a line of slot_size - 1 bytes fits in a
+// buffer of DC_SYSLOG_HEADER_MAX + slot_size, as dc_syslog.c allocates it.
+static void test_header_max(void)
+{
+    char ts[DC_SYSLOG_TIMESTAMP_MAX + 10], host[DC_SYSLOG_HOSTNAME_MAX + 10];
+    char app[DC_SYSLOG_APPNAME_MAX + 10], tag[DC_SYSLOG_PROCID_MAX + 10];
+    memset(ts, 't', sizeof ts - 1);     ts[sizeof ts - 1] = '\0';
+    memset(host, 'h', sizeof host - 1); host[sizeof host - 1] = '\0';
+    memset(app, 'a', sizeof app - 1);   app[sizeof app - 1] = '\0';
+    memset(tag, 'g', sizeof tag - 1);   tag[sizeof tag - 1] = '\0';
+    dc_syslog_meta_t meta = {
+        .timestamp = ts, .hostname = host, .app_name = app,
+        .seq = 4294967295u, .up_ms = 18446744073709551615ull, .truncated = true,
+    };
+    dc_syslog_line_t line = { .severity = 7, .tag = tag, .tag_len = strlen(tag),
+                              .msg = "", .msg_len = 0 };
+    char out[DC_SYSLOG_HEADER_MAX + 1024];
+    size_t n = dc_syslog_format(out, DC_SYSLOG_HEADER_MAX, &meta, &line);
+    printf("    maximum header: %zu bytes, DC_SYSLOG_HEADER_MAX %d\n", n, DC_SYSLOG_HEADER_MAX);
+    check("maximum header fits with \" \" and NUL", n > 0 && n + 2 <= DC_SYSLOG_HEADER_MAX);
+
+    // The longest line of the largest slot, with every field at its maximum.
+    static char msg[1024];
+    size_t slot = 1024;
+    memset(msg, 'm', slot - 1);
+    meta.truncated = false;
+    line.msg = msg;
+    line.msg_len = slot - 1;
+    n = dc_syslog_format(out, DC_SYSLOG_HEADER_MAX + slot, &meta, &line);
+    check("full line of a 1024-byte slot fits",
+          n > 0 && strstr(out, "trunc=") == NULL && strlen(strchr(out, ']') + 2) == slot - 1);
+}
+
 int main(void)
 {
     test_severity();
@@ -239,6 +273,7 @@ int main(void)
     test_format();
     test_sequence();
     test_truncation();
+    test_header_max();
     printf(fails ? "\n%d FAILED\n" : "\nALL PASS\n", fails);
     return fails ? 1 : 0;
 }
