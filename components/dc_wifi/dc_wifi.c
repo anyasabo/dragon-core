@@ -564,7 +564,9 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
     } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
         no_ip_watch_stop();
         const wifi_event_sta_disconnected_t *d = (const wifi_event_sta_disconnected_t *)data;
-        if (d) s_last_disc_reason = d->reason;   // keep the latest reason for the setup page
+        // Keep the latest join-attempt reason for the setup page. Our own disconnects
+        // in the portal state (reason ASSOC_LEAVE) must not replace it.
+        if (d && dc_wifi_disc_reason_relevant(s_state)) s_last_disc_reason = d->reason;
         if (s_state == DC_WIFI_STATE_STA_CONNECTING || s_state == DC_WIFI_STATE_STA_CONNECTED) {
             if (s_retry < sta_max_retries()) {
                 s_retry++;

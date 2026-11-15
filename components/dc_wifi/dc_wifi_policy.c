@@ -16,3 +16,8 @@ bool dc_wifi_sta_link_allowed(dc_wifi_state_t state)
 {
     return state != DC_WIFI_STATE_AP_PORTAL;
 }
+
+bool dc_wifi_disc_reason_relevant(dc_wifi_state_t state)
+{
+    return state == DC_WIFI_STATE_STA_CONNECTING || state == DC_WIFI_STATE_STA_CONNECTED;
+}

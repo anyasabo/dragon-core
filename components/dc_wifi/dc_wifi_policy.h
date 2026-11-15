@@ -19,3 +19,9 @@ dc_wifi_boot_fail_action_t dc_wifi_boot_fail_action(dc_wifi_ap_mode_t mode);
 // auth, so the STA must not join the LAN in this state: a late association or
 // IP lease must be dropped.
 bool dc_wifi_sta_link_allowed(dc_wifi_state_t state);
+
+// True if a STA_DISCONNECTED reason in this state comes from a join attempt, so
+// the setup page must show it. Outside CONNECTING/CONNECTED, a disconnect is our
+// own (portal switch, late-join drop, esp_wifi_stop) with reason ASSOC_LEAVE: it
+// must not hide the real cause, for example a wrong password.
+bool dc_wifi_disc_reason_relevant(dc_wifi_state_t state);
