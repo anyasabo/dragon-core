@@ -16,10 +16,13 @@
 #include "lwip/sockets.h"
 #include "sdkconfig.h"
 
-#if CONFIG_LOG_VERSION_2
 // Log v2 calls the vprintf hook several times for each line (prefix, message,
-// reset and newline). dc_syslog needs one call for each line. See dc_syslog.h.
-#error "dc_syslog supports only ESP-IDF log v1. Set CONFIG_LOG_VERSION_1=y."
+// reset and newline). dc_syslog needs one call for each line. With log v2 the
+// component compiles, but dc_syslog_start() refuses to start. See dc_syslog.h.
+#if CONFIG_LOG_VERSION_2
+#define DC_SYSLOG_LOG_V2 1
+#else
+#define DC_SYSLOG_LOG_V2 0
 #endif
 
 // The sender task must not log: its lines would come back into the queue. Only
@@ -227,6 +230,10 @@ static bool copy_str(char *dst, size_t dst_sz, const char *src)
 
 esp_err_t dc_syslog_start(const dc_syslog_config_t *cfg)
 {
+    if (DC_SYSLOG_LOG_V2) {
+        ESP_LOGE(TAG, "not started: ESP-IDF log v2 is not supported (set CONFIG_LOG_VERSION_1=y)");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     if (s_task != NULL) return ESP_ERR_INVALID_STATE;
     if (cfg == NULL || cfg->server == NULL || cfg->server[0] == '\0') return ESP_ERR_INVALID_ARG;
     if (!copy_str(s_server, sizeof s_server, cfg->server) ||
