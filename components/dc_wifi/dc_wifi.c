@@ -1,6 +1,7 @@
 #include "dc_wifi.h"
 
 #include "esp_event.h"
+#include "esp_idf_version.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -606,7 +607,11 @@ static const char *sta_disc_reason_hint(uint8_t reason)
     case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
         return "wrong Wi-Fi password";
     case WIFI_REASON_BEACON_TIMEOUT:
-    case WIFI_REASON_DISASSOC_DUE_TO_INACTIVITY: // was WIFI_REASON_ASSOC_EXPIRE (removed in ESP-IDF 6)
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
+    case WIFI_REASON_DISASSOC_DUE_TO_INACTIVITY: // ESP-IDF 6 removed ASSOC_EXPIRE (also 4)
+#else
+    case WIFI_REASON_ASSOC_EXPIRE:               // ESP-IDF 5.3.0 has no DUE_TO_INACTIVITY name
+#endif
         return "weak signal \xE2\x80\x94 move the device closer to the router";
     default:
         return NULL;
