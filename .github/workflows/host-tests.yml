@@ -33,6 +33,9 @@ jobs:
       - name: Test Wi-Fi credential boundary validation
         run: tests/run_wifi_validate_host_test.sh
 
+      - name: Test Wi-Fi boot decisions (portal keeps the STA down)
+        run: tests/run_wifi_policy_host_test.sh
+
       - name: Test console snapshot streaming
         run: tests/run_console_stream_host_test.sh
 
