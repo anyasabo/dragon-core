@@ -52,6 +52,18 @@ static const char *ring(void)
     return s_snap;
 }
 
+static void expect_tail(const char *name, const char *want)
+{
+    const char *got = ring();
+    size_t g = strlen(got), w = strlen(want);
+    bool ok = g >= w && strcmp(got + g - w, want) == 0;
+    printf("[%s] %s\n", ok ? "PASS" : "FAIL", name);
+    if (!ok) {
+        printf("  want tail: \"%s\"\n  got:       \"%s\"\n", want, g > w ? got + g - w : got);
+        s_failures++;
+    }
+}
+
 static void expect_ring(const char *name, const char *want)
 {
     bool ok = strcmp(ring(), want) == 0;
@@ -104,6 +116,48 @@ int main(void)
     expect_ring("every open line ends",
                 "W (2) b: b says 2\nI (1) a: a says 1\nI (3) c: one call\nisrA"
                 "B\nC\nD\nE\n");
+
+    // A task continues its line after the hook flushed its slot. Four tasks
+    // fill the four slots, then a fifth task makes the hook flush one of them.
+    void *tasks[4] = { &task_a, &task_b, &task_c, &task_d };
+    const char *starts[4] = { "a1", "b1", "c1", "d1" };
+    for (int i = 0; i < 4; i++) piece(tasks[i], "%s", starts[i]);
+    piece(&task_e, "e1");
+    const char *r = ring();
+    size_t rl = strlen(r);
+    int flushed = -1;
+    for (int i = 0; i < 4; i++)
+        if (rl >= 2 && strcmp(r + rl - 2, starts[i]) == 0) flushed = i;
+    bool one_flushed = flushed >= 0;
+    printf("[%s] a busy slot is flushed into the ring\n", one_flushed ? "PASS" : "FAIL");
+    if (!one_flushed) s_failures++;
+    else {
+        piece(tasks[flushed], "-end");   // gets a new slot; flushes another one
+        piece(tasks[flushed], "\n");
+        expect_tail("continued line ends in order", "-end\n");
+        for (int i = 0; i < 4; i++) piece(tasks[i], "\n");
+        piece(&task_e, "\n");
+        // Every start piece is in the ring once.
+        r = ring();
+        bool all = true;
+        for (int i = 0; i < 4; i++) all = all && strstr(r, starts[i]) != NULL;
+        all = all && strstr(r, "e1\n") != NULL;
+        printf("[%s] no piece is lost after a flush\n", all ? "PASS" : "FAIL");
+        if (!all) s_failures++;
+    }
+
+    // A line longer than the 200-byte slot: the first 200 bytes go into the
+    // ring, the rest follows with the newline, and no byte is lost.
+    char msg[200];
+    memset(msg, 'x', sizeof msg - 1);
+    msg[sizeof msg - 1] = '\0';
+    char want[512];
+    piece(&task_a, "I (9) long: ");
+    piece(&task_a, "%s", msg);            // 12 + 199 bytes > 200
+    piece(&task_b, "W (9) b: short\n");   // full line from another task
+    piece(&task_a, "\n");
+    snprintf(want, sizeof want, "I (9) long: %.188sW (9) b: short\n%.11s\n", msg, msg);
+    expect_tail("long line is split at the slot size without loss", want);
 
     if (s_failures != 0)
         fprintf(stderr, "%d evlog line test(s) failed\n", s_failures);
