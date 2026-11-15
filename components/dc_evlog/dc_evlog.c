@@ -29,16 +29,101 @@ static uint64_t         s_con_write_seq = 0; // total bytes appended; guarded by
 static vprintf_like_t   s_prev_vprintf = NULL;
 static bool             s_con_on = false;
 
-static void con_append(const char *p, int n)
+// Caller holds s_con_mux.
+static void con_append_locked(const char *p, size_t n)
 {
-    if (n <= 0) return;
-    portENTER_CRITICAL(&s_con_mux);
-    for (int i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++) {
         s_con[s_con_head++] = p[i];
         if (s_con_head >= DC_EVLOG_CONSOLE_BYTES) { s_con_head = 0; s_con_full = true; }
     }
     s_con_write_seq += (uint64_t)n;
+}
+
+// ESP-IDF Log V1 (the default in ESP-IDF 5 and 6) calls the hook once for each
+// line. Log V2 (an option in ESP-IDF 5.5 and later) calls it three times: for
+// the "I (123) tag: " prefix, for the message and for the newline. With
+// Picolibc (the ESP-IDF 6 default), Log V2 does not lock between the three
+// calls, so the pieces of two tasks can mix. For Log V2, keep the pieces of
+// each task until its newline, then append the full line.
+#ifndef DC_EVLOG_LINE_ASSEMBLY
+#if defined(CONFIG_LOG_VERSION_2) && CONFIG_LOG_VERSION_2
+#define DC_EVLOG_LINE_ASSEMBLY 1
+#else
+#define DC_EVLOG_LINE_ASSEMBLY 0
+#endif
+#endif
+
+#if DC_EVLOG_LINE_ASSEMBLY
+#define CON_PENDING_SLOTS 4
+typedef struct {
+    TaskHandle_t owner;     // NULL: the slot is free
+    size_t       len;
+    char         buf[CON_LINE];
+} con_pending_t;
+static con_pending_t s_con_pending[CON_PENDING_SLOTS];
+static size_t        s_con_evict = 0;   // next slot to flush if all are busy
+
+// Caller holds s_con_mux.
+static void con_flush_locked(con_pending_t *slot)
+{
+    con_append_locked(slot->buf, slot->len);
+    slot->len = 0;
+    slot->owner = NULL;
+}
+
+// `owner` is NULL in an ISR: then the piece goes directly into the ring.
+static void con_append_piece(TaskHandle_t owner, const char *p, size_t n)
+{
+    if (n == 0) return;
+    bool ends_line = p[n - 1] == '\n';
+    portENTER_CRITICAL(&s_con_mux);
+    con_pending_t *slot = NULL;
+    con_pending_t *free_slot = NULL;
+    for (size_t i = 0; owner != NULL && i < CON_PENDING_SLOTS; i++) {
+        if (s_con_pending[i].owner == owner) { slot = &s_con_pending[i]; break; }
+        if (free_slot == NULL && s_con_pending[i].owner == NULL) free_slot = &s_con_pending[i];
+    }
+    if (slot == NULL && (owner == NULL || ends_line)) {
+        con_append_locked(p, n);           // a full line: nothing to keep
+        portEXIT_CRITICAL(&s_con_mux);
+        return;
+    }
+    if (slot == NULL) {
+        slot = free_slot;
+        if (slot == NULL) {                // all slots busy: flush one, then use it
+            slot = &s_con_pending[s_con_evict];
+            s_con_evict = (s_con_evict + 1) % CON_PENDING_SLOTS;
+            con_flush_locked(slot);
+        }
+        slot->owner = owner;
+    }
+    while (n > 0) {
+        size_t room = sizeof slot->buf - slot->len;
+        size_t take = n < room ? n : room;
+        memcpy(slot->buf + slot->len, p, take);
+        slot->len += take;
+        p += take;
+        n -= take;
+        if (slot->len == sizeof slot->buf) {   // line longer than the slot
+            con_append_locked(slot->buf, slot->len);
+            slot->len = 0;
+        }
+    }
+    if (ends_line) con_flush_locked(slot);
     portEXIT_CRITICAL(&s_con_mux);
+}
+#endif
+
+static void con_append(const char *p, int n)
+{
+    if (n <= 0) return;
+#if DC_EVLOG_LINE_ASSEMBLY
+    con_append_piece(xPortInIsrContext() ? NULL : xTaskGetCurrentTaskHandle(), p, (size_t)n);
+#else
+    portENTER_CRITICAL(&s_con_mux);
+    con_append_locked(p, (size_t)n);
+    portEXIT_CRITICAL(&s_con_mux);
+#endif
 }
 
 // esp_log hook: tee the formatted line into the ring, then forward to the original
