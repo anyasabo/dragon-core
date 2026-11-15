@@ -17,14 +17,18 @@
 // - Recommended: set dc_time_config_t.server to a known NTP server, for
 //   example the home server that runs chrony.
 // - DHCP (use_dhcp = true): many routers do not send DHCP option 42. Also,
-//   lwIP gives the option to SNTP only from a lease that comes after
-//   dc_time_start(). Thus call dc_time_start() before the station gets its IP
-//   address. DHCP needs CONFIG_LWIP_DHCP_GET_NTP_SRV=y.
+//   lwIP gives the option to SNTP only from a DHCP reply that comes after
+//   dc_time_start(). If the station (WIFI_STA_DEF) already has an address,
+//   dc_time_start() asks for a DHCP renewal, so the reply with option 42
+//   comes at once. DHCP needs CONFIG_LWIP_DHCP_GET_NTP_SRV=y.
 // - DHCP with a fallback (use_dhcp = true and server set): the DHCP server
 //   goes in SNTP slot 0 and the configured server in slot 1. This needs
-//   CONFIG_LWIP_SNTP_MAX_SERVERS=2 (or more). When DHCP gives a server, lwIP
-//   clears the other slots. Thus dc_time sets slot 1 again at each
-//   IP_EVENT_STA_GOT_IP.
+//   CONFIG_LWIP_SNTP_MAX_SERVERS=2 (or more). When a DHCP reply gives a
+//   server, lwIP clears the other slots. esp_netif_sntp sets slot 1 again only
+//   at IP_EVENT_STA_GOT_IP. A renewal with the same address sends no
+//   GOT_IP, so after a renewal with option 42, slot 1 stays empty until the
+//   next new lease. If the configured server must always be used, set
+//   use_dhcp = false.
 //
 // If there is no sync DC_TIME_SYNC_WARN_MIN minutes after dc_time_start(),
 // dc_time logs one warning. An esp_timer one-shot does the check. The product
@@ -53,6 +57,8 @@ typedef struct {
 } dc_time_config_t;
 
 // Start SNTP. Call it once, after esp_netif_init() (dc_wifi_start() calls it).
+// With use_dhcp, if the station has an address, it also asks for a DHCP
+// renewal (one DHCP request, the address does not change).
 // Errors:
 // - ESP_ERR_INVALID_STATE: SNTP is already started.
 // - ESP_ERR_INVALID_ARG: cfg is NULL, there is no server and no DHCP, or the
