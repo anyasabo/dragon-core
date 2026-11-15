@@ -26,37 +26,40 @@
 // need psa_crypto_init() and does not link the PSA core.
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 0, 0)
 #include "psa/crypto.h"
+#define OTA_SHA256_LEN PSA_HASH_LENGTH(PSA_ALG_SHA_256)
 typedef psa_hash_operation_t ota_sha256_t;
 static bool ota_sha256_start(ota_sha256_t *sha)
 {
     *sha = psa_hash_operation_init();
     return psa_hash_setup(sha, PSA_ALG_SHA_256) == PSA_SUCCESS;
 }
-static void ota_sha256_update(ota_sha256_t *sha, const uint8_t *data, size_t len)
+static bool ota_sha256_update(ota_sha256_t *sha, const uint8_t *data, size_t len)
 {
-    (void)psa_hash_update(sha, data, len); // an error makes finish fail
+    return psa_hash_update(sha, data, len) == PSA_SUCCESS;
 }
-static bool ota_sha256_finish(ota_sha256_t *sha, uint8_t digest[32])
+static bool ota_sha256_finish(ota_sha256_t *sha, uint8_t digest[OTA_SHA256_LEN])
 {
     size_t len = 0;
-    bool ok = psa_hash_finish(sha, digest, 32, &len) == PSA_SUCCESS && len == 32;
+    bool ok = psa_hash_finish(sha, digest, OTA_SHA256_LEN, &len) == PSA_SUCCESS &&
+              len == OTA_SHA256_LEN;
     psa_hash_abort(sha);
     return ok;
 }
 static void ota_sha256_abort(ota_sha256_t *sha) { psa_hash_abort(sha); }
 #else
 #include "mbedtls/sha256.h"
+#define OTA_SHA256_LEN 32
 typedef mbedtls_sha256_context ota_sha256_t;
 static bool ota_sha256_start(ota_sha256_t *sha)
 {
     mbedtls_sha256_init(sha);
     return mbedtls_sha256_starts(sha, 0) == 0;
 }
-static void ota_sha256_update(ota_sha256_t *sha, const uint8_t *data, size_t len)
+static bool ota_sha256_update(ota_sha256_t *sha, const uint8_t *data, size_t len)
 {
-    (void)mbedtls_sha256_update(sha, data, len);
+    return mbedtls_sha256_update(sha, data, len) == 0;
 }
-static bool ota_sha256_finish(ota_sha256_t *sha, uint8_t digest[32])
+static bool ota_sha256_finish(ota_sha256_t *sha, uint8_t digest[OTA_SHA256_LEN])
 {
     bool ok = mbedtls_sha256_finish(sha, digest) == 0;
     mbedtls_sha256_free(sha);
@@ -520,10 +523,10 @@ static esp_err_t update_post(httpd_req_t *req)
             esp_ota_abort(update);
             return json_error(req, "500 Internal Server Error", "OTA receive/write failed");
         }
-        ota_sha256_update(&sha, buffer, (size_t)got);
+        sha_ok = ota_sha256_update(&sha, buffer, (size_t)got) && sha_ok;
         remaining -= got;
     }
-    uint8_t digest[32];
+    uint8_t digest[OTA_SHA256_LEN];
     sha_ok = ota_sha256_finish(&sha, digest) && sha_ok;
     err = esp_ota_end(update);
     if (err != ESP_OK) return json_error(req, "400 Bad Request", esp_err_to_name(err));
@@ -545,7 +548,7 @@ static esp_err_t update_post(httpd_req_t *req)
     }
     err = esp_ota_set_boot_partition(partition);
     if (err != ESP_OK) return json_error(req, "500 Internal Server Error", esp_err_to_name(err));
-    char sha_hex[65] = "";
+    char sha_hex[OTA_SHA256_LEN * 2 + 1] = "";
     for (size_t i = 0; sha_ok && i < sizeof(digest); ++i)
         snprintf(&sha_hex[i * 2], 3, "%02x", digest[i]);
     cJSON *reply = cJSON_CreateObject();
