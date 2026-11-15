@@ -2,6 +2,7 @@
 #include "dc_portal.h"
 #include "dc_portal_console_stream.h"
 #include "dc_portal_dns.h"
+#include "dc_portal_body.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -15,6 +16,7 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -51,19 +53,24 @@ static esp_err_t json_error(httpd_req_t *req, const char *status, const char *me
     return send_json(req, root);
 }
 
+_Static_assert(DC_PORTAL_BODY_RECV_TIMEOUT == HTTPD_SOCK_ERR_TIMEOUT, "timeout code");
+
+static int body_recv(void *ctx, char *buf, size_t len)
+{
+    return httpd_req_recv((httpd_req_t *)ctx, buf, len);
+}
+
 static cJSON *recv_json(httpd_req_t *req)
 {
     if (req->content_len <= 0 || req->content_len > 4096) return NULL;
     char *body = malloc((size_t)req->content_len + 1);
     if (!body) return NULL;
-    int offset = 0;
-    while (offset < req->content_len) {
-        int got = httpd_req_recv(req, body + offset, req->content_len - offset);
-        if (got == HTTPD_SOCK_ERR_TIMEOUT) continue;
-        if (got <= 0) { free(body); return NULL; }
-        offset += got;
+    if (!dc_portal_read_body(body_recv, esp_timer_get_time, req, body, req->content_len,
+                             DC_PORTAL_JSON_BODY_LIMITS)) {
+        free(body);
+        return NULL;
     }
-    body[offset] = 0;
+    body[req->content_len] = 0;
     cJSON *root = cJSON_Parse(body);
     free(body);
     return root;
@@ -468,10 +475,15 @@ static esp_err_t update_post(httpd_req_t *req)
     mbedtls_sha256_init(&sha);
     mbedtls_sha256_starts(&sha, 0);
     int remaining = req->content_len;
+    // A stalled upload must not hold the httpd task without a limit. Data
+    // resets the count. A slow upload over Wi-Fi is normal, so there is no
+    // limit on the total time.
+    int idle_timeouts = 0;
     while (remaining > 0) {
         int got = httpd_req_recv(req, (char *)buffer,
                                  remaining < (int)sizeof(buffer) ? remaining : (int)sizeof(buffer));
-        if (got == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (got == HTTPD_SOCK_ERR_TIMEOUT && ++idle_timeouts < DC_PORTAL_OTA_IDLE_TIMEOUTS_MAX) continue;
+        if (got > 0) idle_timeouts = 0;
         if (got <= 0 || esp_ota_write(update, buffer, (size_t)got) != ESP_OK) {
             mbedtls_sha256_free(&sha);
             esp_ota_abort(update);
