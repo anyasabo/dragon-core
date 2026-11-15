@@ -72,6 +72,9 @@ static void con_flush_locked(con_pending_t *slot)
 }
 
 // `owner` is NULL in an ISR: then the piece goes directly into the ring.
+// On ESP32-C3 with ESP-IDF 6.1, this case does not occur by default: Log V2
+// prints from an ISR with esp_rom_vprintf and does not call the hook
+// (CONFIG_LOG_API_CONSTRAINED_ENV_SAFE). The branch is a safe fallback.
 static void con_append_piece(TaskHandle_t owner, const char *p, size_t n)
 {
     if (n == 0) return;
