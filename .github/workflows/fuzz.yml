@@ -1,0 +1,41 @@
+name: fuzz
+
+# Fuzzing takes a few minutes, so it does not run on each push.
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"   # each Monday
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    # Run each libFuzzer harness for 60 s. If a harness finds a crash, the job
+    # fails and uploads the input that caused it.
+    runs-on: ubuntu-latest
+    steps:
+      # libFuzzer and the sanitizer runtimes are in libclang-rt-dev. With
+      # --no-install-recommends, apt does not install it with clang.
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Fuzz the parsers
+        run: tests/run_fuzz.sh 60
+
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-artifacts
+          path: /tmp/dragon-core-fuzz/artifacts-*

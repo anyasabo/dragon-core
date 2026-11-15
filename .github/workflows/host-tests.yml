@@ -48,6 +48,35 @@ jobs:
       - name: Reject whitespace errors
         run: git diff --check
 
+  sanitizers:
+    # Run the host tests again with ASan and UBSan, with gcc and clang.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
+      HOST_TEST_CFLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -g
+    steps:
+      # The clang sanitizer runtimes are in libclang-rt-dev. With
+      # --no-install-recommends, apt does not install it with clang.
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Run host tests with sanitizers
+        run: |
+          for test in tests/run_*_host_test.sh; do
+            echo "::group::$test"
+            "$test"
+            echo "::endgroup::"
+          done
+
   esp-idf-build:
     runs-on: ubuntu-latest
     steps:
