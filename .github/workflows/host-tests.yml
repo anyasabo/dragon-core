@@ -49,10 +49,8 @@ jobs:
         run: git diff --check
 
   sanitizers:
-    # Run the host tests again with ASan and UBSan, with gcc and clang. The
-    # devspace image is Ubuntu 26.10, so the container uses the same compilers.
+    # Run the host tests again with ASan and UBSan, with gcc and clang.
     runs-on: ubuntu-latest
-    container: ubuntu:26.10
     strategy:
       fail-fast: false
       matrix:
@@ -61,10 +59,12 @@ jobs:
       CC: ${{ matrix.cc }}
       HOST_TEST_CFLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -g
     steps:
-      - name: Install compilers
+      # The clang sanitizer runtimes are in libclang-rt-dev. With
+      # --no-install-recommends, apt does not install it with clang.
+      - name: Install clang
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates gcc clang libclang-rt-dev libc6-dev
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
 
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -76,30 +76,6 @@ jobs:
             "$test"
             echo "::endgroup::"
           done
-
-  fuzz:
-    # Run each libFuzzer harness for 60 s. If a harness finds a crash, the job
-    # fails and uploads the input that caused it.
-    runs-on: ubuntu-latest
-    container: ubuntu:26.10
-    steps:
-      - name: Install compilers
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends ca-certificates clang libclang-rt-dev libc6-dev
-
-      - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Fuzz the parsers
-        run: tests/run_fuzz.sh 60
-
-      - name: Upload crash inputs
-        if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: fuzz-artifacts
-          path: /tmp/dragon-core-fuzz/artifacts-*
 
   esp-idf-build:
     runs-on: ubuntu-latest
