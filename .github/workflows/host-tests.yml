@@ -54,6 +54,9 @@ jobs:
       - name: Run syslog format and queue tests
         run: tests/run_syslog_host_test.sh
 
+      - name: Test the bounded portal body read
+        run: tests/run_portal_body_host_test.sh
+
       - name: Check family SPA syntax and capability contract
         run: node tests/check_ui.mjs
 
