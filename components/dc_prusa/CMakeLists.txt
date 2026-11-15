@@ -1,12 +1,11 @@
-# ESP-IDF 6 removed the built-in json component. On ESP-IDF 6 and later,
-# idf_component.yml adds the registry cJSON component instead.
-set(DC_PRUSA_JSON json)
-if(IDF_VERSION_MAJOR GREATER_EQUAL 6)
-    set(DC_PRUSA_JSON "")
+set(dc_prusa_requires nvs_flash esp_http_client esp_timer)
+# ESP-IDF 6 has no json component: idf_component.yml adds espressif/cjson there.
+if(IDF_VERSION_MAJOR LESS 6)
+    list(APPEND dc_prusa_requires json)
 endif()
 
 idf_component_register(
     SRCS "dc_prusa.c"
     INCLUDE_DIRS "include"
-    REQUIRES nvs_flash esp_http_client esp_timer ${DC_PRUSA_JSON}
+    REQUIRES ${dc_prusa_requires}
 )

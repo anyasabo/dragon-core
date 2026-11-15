@@ -1,8 +1,7 @@
-# ESP-IDF 6 removed the built-in mqtt component. On ESP-IDF 6 and later,
-# idf_component.yml adds the registry ESP-MQTT component instead.
-set(DC_BAMBU_MQTT mqtt)
-if(IDF_VERSION_MAJOR GREATER_EQUAL 6)
-    set(DC_BAMBU_MQTT "")
+set(dc_bambu_requires nvs_flash esp-tls esp_netif esp_timer)
+# ESP-IDF 6 has no mqtt component: idf_component.yml adds espressif/mqtt there.
+if(IDF_VERSION_MAJOR LESS 6)
+    list(APPEND dc_bambu_requires mqtt)
 endif()
 
 idf_component_register(
@@ -12,5 +11,5 @@ idf_component_register(
     # Reports are scanned with strstr/strtof (no cJSON).
     # dc_bambu_discovery.c uses lwip sockets + esp_netif (STA multicast join) and
     # esp_timer for the scan window / age-out timestamps.
-    REQUIRES nvs_flash ${DC_BAMBU_MQTT} esp-tls esp_netif esp_timer
+    REQUIRES ${dc_bambu_requires}
 )

@@ -1,12 +1,11 @@
-# ESP-IDF 6 removed the built-in mqtt component. On ESP-IDF 6 and later,
-# idf_component.yml adds the registry ESP-MQTT component instead.
-set(DC_MQTT_MQTT mqtt)
-if(IDF_VERSION_MAJOR GREATER_EQUAL 6)
-    set(DC_MQTT_MQTT "")
+set(dc_mqtt_requires "")
+# ESP-IDF 6 has no mqtt component: idf_component.yml adds espressif/mqtt there.
+if(IDF_VERSION_MAJOR LESS 6)
+    list(APPEND dc_mqtt_requires mqtt)
 endif()
 
 idf_component_register(
     SRCS "dc_mqtt.c"
     INCLUDE_DIRS "include"
-    REQUIRES ${DC_MQTT_MQTT}
+    REQUIRES ${dc_mqtt_requires}
 )
