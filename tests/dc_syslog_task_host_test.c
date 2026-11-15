@@ -138,7 +138,12 @@ vprintf_like_t esp_log_set_vprintf(vprintf_like_t func)
 }
 
 static struct esp_netif_obj { int unused; } *g_netif = (void *)&g_app_task;
-esp_netif_t *esp_netif_get_default_netif(void) { return g_netif; }
+static char g_ifkey[32];
+esp_netif_t *esp_netif_get_handle_from_ifkey(const char *if_key)
+{
+    snprintf(g_ifkey, sizeof g_ifkey, "%s", if_key);
+    return g_netif;
+}
 bool esp_netif_is_netif_up(esp_netif_t *netif) { (void)netif; return g_net_up; }
 esp_err_t esp_netif_get_ip_info(esp_netif_t *netif, esp_netif_ip_info_t *ip)
 {
@@ -299,22 +304,24 @@ int main(void)
     check("network down keeps the line", s.queued == 1 && s.send_errors == 0 &&
           g_sent_count == 5);
 
-    // DNS error: counted, line kept.
-    g_net_up = true;
-    g_dns_fail = true;
-    run_sender();
-    s = stats();
-    check("DNS error counted, line kept", s.queued == 1 && s.send_errors >= 1 &&
-          g_sent_count == 5);
-    g_dns_fail = false;
-
-    // Send error: counted, line kept, then sent.
+    // Send error: counted, line kept. The sender then looks up the server again.
     uint32_t errors = s.send_errors;
+    g_net_up = true;
     g_send_fail = true;
     run_sender();
     s = stats();
     check("send error counted, line kept", s.queued == 1 && s.send_errors > errors);
+
+    // DNS error: counted, line kept.
+    errors = s.send_errors;
+    int dns_calls = g_dns_calls;
     g_send_fail = false;
+    g_dns_fail = true;
+    run_sender();
+    s = stats();
+    check("DNS error counted, line kept", s.queued == 1 && s.send_errors > errors &&
+          g_dns_calls > dns_calls && g_sent_count == 5);
+    g_dns_fail = false;
     run_sender();
     s = stats();
     check("line sent after recovery", s.queued == 0 && g_sent_count == 6 &&
@@ -329,6 +336,19 @@ int main(void)
     check("long line truncated and marked",
           g_sent_count == 7 && strstr(g_sent[6], "trunc=\"1\"] xxx") != NULL &&
           strlen(strstr(g_sent[6], "] ") + 2) == 100 - 1 - strlen("I (1) app: "));
+
+    check("sender checks the station interface", strcmp(g_ifkey, "WIFI_STA_DEF") == 0);
+
+    // The sender looks up a host name again after 10 minutes, not before.
+    int dns_before = g_dns_calls;
+    g_now_us += 9LL * 60 * 1000000;
+    app_log("I (1) app: at 9 min\n");
+    run_sender();
+    check("no new lookup before 10 min", g_dns_calls == dns_before && g_sent_count == 8);
+    g_now_us += 2LL * 60 * 1000000;
+    app_log("I (1) app: at 11 min\n");
+    run_sender();
+    check("new lookup after 10 min", g_dns_calls == dns_before + 1 && g_sent_count == 9);
 
     s = stats();
     check("stack high water mark", s.stack_free_min == 1234);

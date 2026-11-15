@@ -22,6 +22,7 @@ static const char *TAG = "dc_syslog";
 #define SERVER_MAX     63
 #define RETRY_MIN_MS   1000
 #define RETRY_MAX_MS   30000
+#define RESOLVE_US     (10LL * 60 * 1000000)   // look up a host name again after 10 min
 
 typedef struct {
     uint32_t seq;
@@ -102,9 +103,11 @@ static int syslog_vprintf(const char *fmt, va_list ap)
 
 // ---- sender task ----
 
+// Send only through the station interface. In AP-only mode (provisioning) the
+// AP interface has an address, but the syslog server is not on that network.
 static bool network_up(void)
 {
-    esp_netif_t *netif = esp_netif_get_default_netif();
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_ip_info_t ip;
     return netif && esp_netif_is_netif_up(netif) &&
            esp_netif_get_ip_info(netif, &ip) == ESP_OK && ip.ip.addr != 0;
@@ -149,12 +152,15 @@ static void count_error(void)
     portEXIT_CRITICAL(&s_mux);
 }
 
+// State of the sender task. Only the sender task uses it.
+static int s_sock = -1;
+static bool s_have_addr;
+static int64_t s_resolved_us;
+static struct sockaddr_in s_addr;
+
 static void sender_task(void *arg)
 {
     (void)arg;
-    int sock = -1;
-    bool have_addr = false;
-    struct sockaddr_in addr;
     uint32_t retry_ms = RETRY_MIN_MS;
 
     for (;;) {
@@ -166,20 +172,26 @@ static void sender_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(RETRY_MIN_MS));
             continue;
         }
-        if (sock < 0) sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (sock >= 0 && !have_addr) have_addr = resolve(&addr);
+        if (s_sock < 0) s_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        // The address of a host name can change (DHCP). An IP address costs nothing.
+        int64_t now_us = esp_timer_get_time();
+        if (s_have_addr && now_us - s_resolved_us >= RESOLVE_US) s_have_addr = false;
+        if (s_sock >= 0 && !s_have_addr) {
+            s_have_addr = resolve(&s_addr);
+            s_resolved_us = now_us;
+        }
 
         bool ok = false;
         size_t n = 0;
-        if (sock >= 0 && have_addr) {
+        if (s_sock >= 0 && s_have_addr) {
             // n is 0 only if the header does not fit. s_dgram_size prevents that.
             n = build_datagram(slot_at(idx));
             ok = n == 0 ||
-                 sendto(sock, s_dgram, n, 0, (struct sockaddr *)&addr, sizeof addr) == (int)n;
+                 sendto(s_sock, s_dgram, n, 0, (struct sockaddr *)&s_addr, sizeof s_addr) == (int)n;
         }
         if (!ok) {
             count_error();
-            have_addr = false;              // look up the server again
+            s_have_addr = false;            // look up the server again
             vTaskDelay(pdMS_TO_TICKS(retry_ms));
             retry_ms = retry_ms * 2 > RETRY_MAX_MS ? RETRY_MAX_MS : retry_ms * 2;
             continue;
