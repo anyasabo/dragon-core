@@ -31,7 +31,8 @@
 // - ESP-IDF log v1 only. Log v1 calls the hook one time for each line. Log v2
 //   (CONFIG_LOG_VERSION_2, ESP-IDF 5.5 and later) calls it three times: the
 //   prefix, the message, and the color reset with the newline. If
-//   CONFIG_LOG_VERSION_2 is set, dc_syslog stops the build with #error. The
+//   CONFIG_LOG_VERSION_2 is set, the component compiles, but dc_syslog_start()
+//   returns ESP_ERR_NOT_SUPPORTED and installs no hook. The
 //   default of ESP-IDF v6.1 is still log v1 (components/log/Kconfig:
 //   default LOG_VERSION_1).
 // - Install window: esp_log_set_vprintf() installs the new hook and gives the
@@ -105,6 +106,7 @@ typedef struct {
 // - ESP_ERR_INVALID_ARG: no server, a string is too long, or a size is out of range.
 // - ESP_ERR_INVALID_STATE: dc_syslog is already started.
 // - ESP_ERR_NO_MEM: the slots, queues or task could not be allocated.
+// - ESP_ERR_NOT_SUPPORTED: the build uses ESP-IDF log v2 (CONFIG_LOG_VERSION_2).
 esp_err_t dc_syslog_start(const dc_syslog_config_t *cfg);
 
 // Copy the counters into out. Before dc_syslog_start(), all counters are 0.
