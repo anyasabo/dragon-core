@@ -161,17 +161,25 @@ static esp_err_t spa_get(httpd_req_t *req)
     return httpd_resp_send(req, (const char *)asset.data, asset.len);
 }
 
+// True if a request gets the setup-portal rules (no auth for provisioning). The
+// start snapshot must say AP, and dc_wifi must still be in the portal state: a
+// late STA join on the other core must never leave the routes open on the LAN.
+static bool portal_mode(void)
+{
+    return s_ap_mode && dc_wifi_state() == DC_WIFI_STATE_AP_PORTAL;
+}
+
 static esp_err_t provisioning_get(httpd_req_t *req)
 {
     // Captive provisioning must remain reachable on an unconfigured AP. Once
     // joined to a LAN, the product schema can contain operational settings and
     // must be protected by the product's normal authorization policy.
-    if (!s_ap_mode && require_auth(req) != ESP_OK) return ESP_OK;
+    if (!portal_mode() && require_auth(req) != ESP_OK) return ESP_OK;
     cJSON *root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "schema", 1);
     cJSON_AddStringToObject(root, "product", s_config.product ?: "dragon");
     cJSON_AddStringToObject(root, "display_name", s_config.display_name ?: "Dragon Device");
-    cJSON_AddStringToObject(root, "network_mode", s_ap_mode ? "ap" : "station");
+    cJSON_AddStringToObject(root, "network_mode", portal_mode() ? "ap" : "station");
     cJSON_AddBoolToObject(root, "scanning", dc_wifi_is_scanning());
 
     char failed_ssid[33] = {0}, failed_reason[96] = {0};
@@ -230,7 +238,7 @@ static esp_err_t scan_post(httpd_req_t *req)
 
 static esp_err_t wifi_post(httpd_req_t *req)
 {
-    if (!s_ap_mode && require_auth(req) != ESP_OK) return ESP_OK;
+    if (!portal_mode() && require_auth(req) != ESP_OK) return ESP_OK;
     cJSON *body = recv_json(req);
     cJSON *ssid = body ? cJSON_GetObjectItemCaseSensitive(body, "ssid") : NULL;
     cJSON *password = body ? cJSON_GetObjectItemCaseSensitive(body, "password") : NULL;
