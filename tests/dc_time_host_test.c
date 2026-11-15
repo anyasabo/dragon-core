@@ -1,6 +1,6 @@
-// Host test for the dc_time timestamp formatter (dc_time_format.h): fixed
-// dates, leap years, range limits, buffer limits, and a comparison with the
-// gmtime_r() of the host libc over the full range.
+// Host test for the pure parts of dc_time (dc_time_format.h): fixed dates,
+// leap years, range limits, buffer limits, the clock offset math, and a
+// comparison with the gmtime_r() of the host libc over the full range.
 #define _DEFAULT_SOURCE   // gmtime_r with -std=c11
 #include "dc_time_format.h"
 
@@ -39,6 +39,41 @@ static void compare_with_libc(int64_t ms)
     }
 }
 
+static void check_bool(const char *name, int good)
+{
+    if (!good) fails++;
+    printf("[%s] %s\n", good ? "PASS" : "FAIL", name);
+}
+
+static void test_offset(void)
+{
+    int64_t ms = 42;
+    // Before the first sync: no time, *unix_ms stays the same.
+    check_bool("not synced gives false", !dc_time_wall_ms(false, 0, 5000000, &ms) && ms == 42);
+    check_bool("NULL output gives false", !dc_time_wall_ms(true, 0, 0, NULL));
+
+    // Sync at esp_timer 5 s, wall clock 2024-11-14T23:40:11.123456Z.
+    int64_t wall_us = 1731627611123456LL, mono_us = 5000000;
+    int64_t off = dc_time_offset_us(wall_us, mono_us);
+    check_bool("offset is wall - mono", off == wall_us - mono_us);
+    check_bool("at the sync", dc_time_wall_ms(true, off, mono_us, &ms) && ms == 1731627611123LL);
+    // 1.5 ms later: 123456 + 1500 = 124956 us, rounded down to 124 ms.
+    check_bool("1.5 ms later rounds down",
+               dc_time_wall_ms(true, off, mono_us + 1500, &ms) && ms == 1731627611124LL);
+    // 49.7 days of uptime (past the 32-bit ms wrap): no overflow.
+    int64_t later = mono_us + 4294967296000LL;
+    check_bool("after 2^32 ms of uptime",
+               dc_time_wall_ms(true, off, later, &ms) && ms == 1731627611123LL + 4294967296LL);
+    // A wall clock before 1970 is not valid.
+    check_bool("before 1970 gives false",
+               !dc_time_wall_ms(true, dc_time_offset_us(0, 10), 0, &ms));
+
+    char buf[DC_TIME_RFC3339_SIZE];
+    dc_time_wall_ms(true, off, mono_us + 1500, &ms);
+    dc_time_format_rfc3339(ms, buf, sizeof buf);
+    check_bool("formatted after sync", strcmp(buf, "2024-11-14T23:40:11.124Z") == 0);
+}
+
 int main(void)
 {
     expect("epoch", 0, 25, "1970-01-01T00:00:00.000Z");
@@ -62,6 +97,8 @@ int main(void)
         if (!good) fails++;
         printf("[%s] len 0 and NULL\n", good ? "PASS" : "FAIL");
     }
+
+    test_offset();
 
     // Compare with libc: each day boundary of 1970-2200, then big steps to 9999.
     int before = fails;

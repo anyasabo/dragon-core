@@ -46,3 +46,17 @@ size_t dc_time_format_rfc3339(int64_t unix_ms, char *buf, size_t len)
     *p = '\0';
     return DC_TIME_RFC3339_LEN;
 }
+
+int64_t dc_time_offset_us(int64_t wall_us, int64_t mono_us)
+{
+    return wall_us - mono_us;
+}
+
+bool dc_time_wall_ms(bool synced, int64_t offset_us, int64_t mono_us, int64_t *unix_ms)
+{
+    if (!synced || unix_ms == NULL) return false;
+    int64_t wall_us = mono_us + offset_us;
+    if (wall_us < 0) return false;
+    *unix_ms = wall_us / 1000;
+    return true;
+}

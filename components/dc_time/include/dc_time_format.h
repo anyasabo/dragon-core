@@ -1,8 +1,10 @@
 #pragma once
 
-// Pure timestamp formatter for dc_time. It has no ESP-IDF dependency, so the
-// host test (tests/dc_time_host_test.c) compiles it.
+// Pure parts of dc_time: the timestamp formatter and the clock offset math.
+// They have no ESP-IDF dependency, so the host test (tests/dc_time_host_test.c)
+// compiles them.
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -22,6 +24,15 @@ extern "C" {
 // Returns DC_TIME_RFC3339_LEN. Returns 0 and writes an empty string (if len > 0)
 // if len < DC_TIME_RFC3339_SIZE or unix_ms is not in years 1970 to 9999.
 size_t dc_time_format_rfc3339(int64_t unix_ms, char *buf, size_t len);
+
+// Offset from the monotonic clock (esp_timer) to the wall clock, from one pair
+// of readings at a sync. Both values are in microseconds.
+int64_t dc_time_offset_us(int64_t wall_us, int64_t mono_us);
+
+// Wall clock in ms since 1970 at the monotonic time mono_us, with the offset
+// of the last sync. If synced is false, unix_ms is NULL, or the result is
+// before 1970, returns false and does not write *unix_ms.
+bool dc_time_wall_ms(bool synced, int64_t offset_us, int64_t mono_us, int64_t *unix_ms);
 
 #ifdef __cplusplus
 }
