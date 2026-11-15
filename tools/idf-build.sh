@@ -99,7 +99,9 @@ if [[ "${IDF_PREFLIGHT_ONLY:-0}" == "1" ]]; then
   exit 0
 fi
 
-idf.py -C "$PROJECT_DIR" -B "$BUILD_DIR" -D "IDF_TARGET=$TARGET" build
+# Arguments after the build directory go to idf.py, for example
+# -DSDKCONFIG=... or -DSDKCONFIG_DEFAULTS=...
+idf.py -C "$PROJECT_DIR" -B "$BUILD_DIR" -D "IDF_TARGET=$TARGET" "${@:4}" build
 
 if ! check_lock; then
   echo "error: resolved dependency lock does not match the manifest:" >&2
