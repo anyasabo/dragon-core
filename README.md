@@ -99,7 +99,9 @@ The public C prefix is `dc_`. The extraction intentionally preserves existing NV
 namespaces and keys so moving DragonBreath from its former local `pb_*` copies does not
 erase saved Wi-Fi, Moonraker, Bambu, or control-source configuration.
 
-Requires ESP-IDF 5.3 or newer.
+Requires ESP-IDF 5.3 or newer. CI builds the components with ESP-IDF 5.3 and 6.1.
+On ESP-IDF 6, the component manifests add `espressif/cjson` and `espressif/mqtt` from
+the component registry, because ESP-IDF 6 removed its built-in `json` and `mqtt` components.
 
 For local and CI builds, use `tools/idf-build.sh <project> <target> <build-dir>`.
 It explicitly locates the Xtensa/RISC-V compiler required by the target and rejects

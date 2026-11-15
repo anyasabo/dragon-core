@@ -180,7 +180,7 @@ esp_err_t dc_lighting_start(const dc_lighting_config_t *config)
     s_layout = config->layout;
     for (uint8_t i = 0; i < config->output_count; ++i) {
         if (config->outputs[i].gpio == GPIO_NUM_NC || !config->outputs[i].pixels) return ESP_ERR_INVALID_ARG;
-        led_strip_config_t strip = { .strip_gpio_num = config->outputs[i].gpio, .max_leds = config->outputs[i].pixels, .led_pixel_format = LED_PIXEL_FORMAT_GRB, .led_model = LED_MODEL_WS2812 };
+        led_strip_config_t strip = { .strip_gpio_num = config->outputs[i].gpio, .max_leds = config->outputs[i].pixels, .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB, .led_model = LED_MODEL_WS2812 };
         esp_err_t err;
         if (config->outputs[i].transport == DC_LIGHTING_TRANSPORT_SPI_DMA) {
             led_strip_spi_config_t spi = { .clk_src = SPI_CLK_SRC_DEFAULT, .spi_bus = config->outputs[i].spi_host, .flags = { .with_dma = true } };

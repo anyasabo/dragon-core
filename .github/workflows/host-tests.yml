@@ -39,6 +39,9 @@ jobs:
       - name: Test console snapshot streaming
         run: tests/run_console_stream_host_test.sh
 
+      - name: Test console line assembly for ESP-IDF Log V2
+        run: tests/run_evlog_line_host_test.sh
+
       - name: Run generic PID tests
         run: tests/run_pid_host_test.sh
 
@@ -99,3 +102,26 @@ jobs:
           target: esp32c3
           path: .
           command: tools/idf-build.sh tests/idf-build esp32c3 build
+
+      # ESP-IDF 6 moved cJSON and ESP-MQTT to the component registry and uses
+      # Mbed TLS 4. This build keeps the components compatible with it.
+      - name: Build all components (ESP-IDF v6.1, ESP32-C3)
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32c3
+          path: .
+          command: tools/idf-build.sh tests/idf-build esp32c3 build-idf6
+
+      # Log V2 compiles the dc_evlog line assembly. With ESP-IDF 6.1, it also
+      # uses Picolibc, where Log V2 does not lock between the pieces of a line.
+      - name: Build all components with Log V2 (ESP-IDF v6.1, ESP32-C3)
+        uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
+        with:
+          esp_idf_version: v6.1
+          target: esp32c3
+          path: .
+          command: >-
+            tools/idf-build.sh tests/idf-build esp32c3 build-log-v2
+            -DSDKCONFIG="$PWD/tests/idf-build/build-log-v2/sdkconfig"
+            -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.log-v2"

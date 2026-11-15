@@ -3,3 +3,9 @@ description: Bambu LAN MQTT client for Dragon family firmware
 license: MIT
 dependencies:
   idf: ">=5.3"
+  # ESP-IDF 6 moved ESP-MQTT out of the IDF tree. Older IDF versions use the
+  # built-in mqtt component (see CMakeLists.txt).
+  espressif/mqtt:
+    version: "^1.0.0"
+    rules:
+      - if: "idf_version >=6.0"
