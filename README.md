@@ -12,6 +12,7 @@ Product repositories own GPIO mappings, sensors, actuators, safety policy, and t
 | `dc_source` | Persisted external-control source selection |
 | `dc_bambu` | Bambu LAN MQTT client and printer status |
 | `dc_wifi` | Station/AP networking, provisioning state, scanning, and mDNS |
+| `dc_time` | SNTP wall clock and RFC 3339 timestamps for logs (never for safety or control) |
 | `dc_moonraker` | Moonraker WebSocket client and Klipper print status |
 | `dc_mqtt` | Shared ESP-MQTT session lifecycle, LWT, and event callbacks |
 | `dc_ui` | Embedded, capability-aware browser SPA shared by Dragon products |

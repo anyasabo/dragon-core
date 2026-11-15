@@ -7,6 +7,7 @@
 #include "dc_portal.h"
 #include "dc_prusa.h"
 #include "dc_source.h"
+#include "dc_time.h"
 #include "dc_ui.h"
 #include "dc_wifi.h"
 
@@ -53,4 +54,11 @@ void app_main(void)
     (void)dc_ui_spa_asset();
     (void)dc_portal_start(NULL);
     (void)dc_portal_httpd();
+    // dc_time_start() starts SNTP, which needs the TCP/IP stack. Link it through
+    // a pointer and do not call it. The other dc_time calls are safe before start.
+    esp_err_t (*volatile time_start)(const dc_time_config_t *) = dc_time_start;
+    (void)time_start;
+    char timestamp[DC_TIME_RFC3339_SIZE];
+    (void)dc_time_is_synced();
+    (void)dc_time_format_now(timestamp, sizeof timestamp);
 }
