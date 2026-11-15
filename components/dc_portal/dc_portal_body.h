@@ -27,8 +27,9 @@ typedef int (*dc_portal_recv_fn)(void *ctx, char *buf, size_t len);
 typedef int64_t (*dc_portal_now_fn)(void);
 
 // JSON bodies are small (4 KB or less). Stop after 3 idle timeouts in a row,
-// or after 10 s in total. A client that sends one byte for each timeout then
-// holds the httpd task for 10 s at most.
+// or after 10 s in total. The read checks the deadline before each receive,
+// and one receive can wait for one recv_wait_timeout (5 s). Thus a client that
+// sends one byte for each timeout holds the httpd task for about 15 s at most.
 #define DC_PORTAL_JSON_BODY_LIMITS ((dc_portal_body_limits_t){ .idle_timeouts_max = 3, .deadline_us = 10 * 1000000LL })
 
 // An OTA upload stops after this many timeouts in a row with no data
@@ -56,4 +57,13 @@ static inline bool dc_portal_read_body(dc_portal_recv_fn recv, dc_portal_now_fn 
         got += (size_t)r;
     }
     return true;
+}
+
+// True if the handler did not read all of the body. If a handler returns ESP_OK,
+// httpd_req_delete() reads and discards the rest of the body with no time limit,
+// and ESP-IDF does not limit Content-Length. Thus the handler must return
+// ESP_FAIL: then httpd closes the socket.
+static inline bool dc_portal_body_unread(size_t content_len, size_t body_read)
+{
+    return body_read < content_len;
 }

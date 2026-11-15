@@ -103,6 +103,12 @@ int main(void)
     // A zero-length read returns true at once and calls nothing.
     { int s[] = { 1 }; CHECK(run(s, 1, body, 0, out, &c)); CHECK(c.calls == 0); }
 
+    // A handler that left body bytes unread must close the socket.
+    CHECK(!dc_portal_body_unread(0, 0));
+    CHECK(!dc_portal_body_unread(len, len));
+    CHECK(dc_portal_body_unread(len, len - 1));
+    CHECK(dc_portal_body_unread((size_t)4000000000u, 0));
+
     printf("dc_portal body host tests: PASS\n");
     return 0;
 }

@@ -55,9 +55,15 @@ static esp_err_t json_error(httpd_req_t *req, const char *status, const char *me
 
 _Static_assert(DC_PORTAL_BODY_RECV_TIMEOUT == HTTPD_SOCK_ERR_TIMEOUT, "timeout code");
 
+// Body bytes that the handler of the current request read. The httpd task
+// serves one request at a time, so one counter is enough.
+static size_t s_body_read;
+
 static int body_recv(void *ctx, char *buf, size_t len)
 {
-    return httpd_req_recv((httpd_req_t *)ctx, buf, len);
+    int got = httpd_req_recv((httpd_req_t *)ctx, buf, len);
+    if (got > 0) s_body_read += (size_t)got;
+    return got;
 }
 
 static cJSON *recv_json(httpd_req_t *req)
@@ -490,6 +496,7 @@ static esp_err_t update_post(httpd_req_t *req)
             return json_error(req, "500 Internal Server Error", "OTA receive/write failed");
         }
         mbedtls_sha256_update(&sha, buffer, (size_t)got);
+        s_body_read += (size_t)got;
         remaining -= got;
     }
     uint8_t digest[32];
@@ -573,6 +580,28 @@ static esp_err_t register_handler(const httpd_uri_t *handler)
     return err;
 }
 
+// Run a built-in handler. If it sent a response but did not read all of the
+// body, return ESP_FAIL. Then httpd closes the socket and does not read the
+// rest of the body (see dc_portal_body_unread()).
+static esp_err_t builtin_handler(httpd_req_t *req)
+{
+    const httpd_uri_t *route = req->user_ctx;
+    req->user_ctx = route->user_ctx;
+    s_body_read = 0;
+    esp_err_t err = route->handler(req);
+    if (err == ESP_OK && dc_portal_body_unread(req->content_len, s_body_read)) return ESP_FAIL;
+    return err;
+}
+
+// The route must stay in memory: builtin_handler() reads it for each request.
+static esp_err_t register_builtin(const httpd_uri_t *route)
+{
+    httpd_uri_t wrapped = *route;
+    wrapped.handler = builtin_handler;
+    wrapped.user_ctx = (void *)route;
+    return register_handler(&wrapped);
+}
+
 esp_err_t dc_portal_start(const dc_portal_config_t *config)
 {
     if (!config || !config->product || !config->display_name) return ESP_ERR_INVALID_ARG;
@@ -598,7 +627,7 @@ esp_err_t dc_portal_start(const dc_portal_config_t *config)
     esp_err_t err = httpd_start(&s_httpd, &http);
     if (err != ESP_OK) return err;
 
-    const httpd_uri_t builtins[] = {
+    static const httpd_uri_t builtins[] = {
         { .uri = "/api/v1/provisioning", .method = HTTP_GET, .handler = provisioning_get },
         { .uri = "/api/v1/provisioning/scan", .method = HTTP_POST, .handler = scan_post },
         { .uri = "/api/v1/provisioning/wifi", .method = HTTP_POST, .handler = wifi_post },
@@ -615,7 +644,7 @@ esp_err_t dc_portal_start(const dc_portal_config_t *config)
         { .uri = "/", .method = HTTP_GET, .handler = spa_get },
     };
     for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); ++i) {
-        err = register_handler(&builtins[i]);
+        err = register_builtin(&builtins[i]);
         if (err != ESP_OK) goto fail;
     }
     for (size_t i = 0; i < config->product_route_count; ++i) {
@@ -626,8 +655,8 @@ esp_err_t dc_portal_start(const dc_portal_config_t *config)
         err = config->register_product_routes(s_httpd, config->ctx);
         if (err != ESP_OK) goto fail;
     }
-    const httpd_uri_t catchall = { .uri = "/*", .method = HTTP_GET, .handler = spa_get };
-    err = register_handler(&catchall);
+    static const httpd_uri_t catchall = { .uri = "/*", .method = HTTP_GET, .handler = spa_get };
+    err = register_builtin(&catchall);
     if (err != ESP_OK) goto fail;
     dc_wifi_scan_start();
     if (s_ap_mode) {

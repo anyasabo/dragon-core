@@ -24,3 +24,10 @@ Products supply identity, their API route table, and optional callbacks:
 The provisioning contract is versioned separately at
 `GET /api/v1/provisioning`. Product API v2 state and command semantics are not
 interpreted by core; the supplied route table continues to own them.
+
+A handler that sends a response before it reads all of the request body must
+return `ESP_FAIL`. Then httpd closes the socket. If the handler returns `ESP_OK`,
+httpd reads and discards the rest of the body. That read has no time limit, and
+`Content-Length` has no limit. Thus a slow client can stop the server. The
+built-in routes do this automatically. Routes from `product_routes` and
+`register_product_routes` must do it themselves.
