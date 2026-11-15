@@ -4,3 +4,9 @@ license: MIT
 dependencies:
   idf: ">=5.3"
   espressif/esp_websocket_client: "^1.3.0"
+  # ESP-IDF 6 moved cJSON out of the IDF tree. Older IDF versions use the
+  # built-in json component (see CMakeLists.txt).
+  espressif/cjson:
+    version: "^1.7.19"
+    rules:
+      - if: "idf_version >=6.0"

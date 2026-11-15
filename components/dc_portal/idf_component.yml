@@ -3,3 +3,10 @@ description: Shared Dragon-family SPA, provisioning, captive portal, OTA, logs, 
 license: MIT
 dependencies:
   idf: ">=5.3"
+  # ESP-IDF 6 moved cJSON out of the IDF tree. Older IDF versions use the
+  # built-in json component (see CMakeLists.txt).
+  espressif/cjson:
+    version: "^1.7.19"
+    require: public # the public header includes cJSON.h
+    rules:
+      - if: "idf_version >=6.0"
