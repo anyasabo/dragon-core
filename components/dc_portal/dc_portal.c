@@ -179,7 +179,7 @@ static esp_err_t scan_post(httpd_req_t *req)
     // A scan takes the radio off-channel and stalls STA traffic for seconds. On
     // the setup AP it stays open like the other provisioning routes. Once joined
     // to a LAN, it uses the product's normal authorization policy.
-    if (!s_ap_mode && require_auth(req) != ESP_OK) return ESP_OK;
+    if (!portal_mode() && require_auth(req) != ESP_OK) return ESP_OK;
     esp_err_t err = dc_wifi_scan_start();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE)
         return json_error(req, "500 Internal Server Error", esp_err_to_name(err));
