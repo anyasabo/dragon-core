@@ -23,7 +23,7 @@
 // dc_syslog_config_t.timestamp to dc_time_format_now (same signature). Without
 // a callback, or before the clock is synced, TIMESTAMP is "-".
 //
-// RAM: the slots use depth * (slot_size + 56) bytes, the datagram buffer
+// RAM: the slots use depth * (slot_size + 56, rounded up to 8) bytes, the datagram buffer
 // slot_size + 256 bytes, and the task stack DC_SYSLOG_TASK_STACK bytes. All of
 // it comes from the heap at start. With the default sizes (16 slots of 192
 // bytes), the total is approximately 8 KB, plus 236 bytes of static RAM.

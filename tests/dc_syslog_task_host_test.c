@@ -243,7 +243,7 @@ int main(void)
         .app_name = "dragonbreath",
         .hostname = "dragonbreath",
         .queue_depth = 4,
-        .slot_size = 96,
+        .slot_size = 100,   // not a multiple of 8: slot alignment test
         .timestamp = timestamp_cb,
     };
     check("start", dc_syslog_start(&cfg) == ESP_OK);
@@ -328,7 +328,7 @@ int main(void)
     run_sender();
     check("long line truncated and marked",
           g_sent_count == 7 && strstr(g_sent[6], "trunc=\"1\"] xxx") != NULL &&
-          strlen(strstr(g_sent[6], "] ") + 2) == 96 - 1 - strlen("I (1) app: "));
+          strlen(strstr(g_sent[6], "] ") + 2) == 100 - 1 - strlen("I (1) app: "));
 
     s = stats();
     check("stack high water mark", s.stack_free_min == 1234);

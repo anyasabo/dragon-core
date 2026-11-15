@@ -222,10 +222,12 @@ esp_err_t dc_syslog_start(const dc_syslog_config_t *cfg)
     s_port = cfg->port ? cfg->port : DC_SYSLOG_DEFAULT_PORT;
     s_timestamp = cfg->timestamp;
     s_slot_size = slot_size;
-    s_slot_stride = (sizeof(slot_t) + slot_size + 3u) & ~(size_t)3u;
+    // slot_t has a uint64_t, so each slot must start on _Alignof(slot_t).
+    const size_t align = _Alignof(slot_t);
+    s_slot_stride = (sizeof(slot_t) + slot_size + align - 1) & ~(align - 1);
     s_dgram_size = DC_SYSLOG_HEADER_MAX + slot_size;
 
-    s_slots = malloc(depth * s_slot_stride);
+    s_slots = aligned_alloc(align, depth * s_slot_stride);
     s_dgram = malloc(s_dgram_size);
     s_free = xQueueCreate(depth, sizeof(uint8_t));
     s_ready = xQueueCreate(depth, sizeof(uint8_t));
