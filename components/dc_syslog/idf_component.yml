@@ -1,0 +1,5 @@
+version: "0.1.0"
+description: RFC 5424 syslog over UDP for the ESP-IDF log of Dragon firmware
+license: MIT
+dependencies:
+  idf: ">=5.3"

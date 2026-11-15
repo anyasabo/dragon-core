@@ -8,6 +8,7 @@
 #include "dc_prusa.h"
 #include "dc_source.h"
 #include "dc_time.h"
+#include "dc_syslog.h"
 #include "dc_ui.h"
 #include "dc_wifi.h"
 
@@ -61,4 +62,8 @@ void app_main(void)
     char timestamp[DC_TIME_RFC3339_SIZE];
     (void)dc_time_is_synced();
     (void)dc_time_format_now(timestamp, sizeof timestamp);
+    // No server: dc_syslog_start() returns ESP_ERR_INVALID_ARG and installs no hook.
+    dc_syslog_stats_t syslog_stats = {0};
+    (void)dc_syslog_start(&(dc_syslog_config_t){ .server = NULL });
+    dc_syslog_stats(&syslog_stats);
 }
