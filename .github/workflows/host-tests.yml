@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Bambu parser tests
         run: tests/run_bambu_host_test.sh
@@ -64,12 +64,14 @@ jobs:
         run: git diff --check
 
   sanitizers:
-    # Run the host tests again with ASan and UBSan, with gcc and clang.
+    # Run the host tests again with ASan and UBSan, with gcc and clang. The
+    # container has current compilers: ubuntu-latest has gcc-13 and clang-18.
     runs-on: ubuntu-latest
+    container: ubuntu:26.10
     strategy:
       fail-fast: false
       matrix:
-        cc: [gcc, clang]
+        cc: [gcc-16, clang]
     env:
       CC: ${{ matrix.cc }}
       HOST_TEST_CFLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -g
@@ -77,12 +79,14 @@ jobs:
       # The clang sanitizer runtimes are in libclang-rt-dev. With
       # --no-install-recommends, apt does not install it with clang.
       - name: Install clang
+        # clang needs the libstdc++ headers of the newest GCC. Without
+        # libstdc++-16-dev it selects GCC 15 and warns (-Wgcc-install-dir-libstdcxx).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git python3 gcc-16 libstdc++-16-dev clang libclang-rt-dev libc6-dev
 
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run host tests with sanitizers
         run: |
@@ -96,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Compile every shared component together at the minimum supported IDF
       # version. This catches component metadata, public-header, and link-time
@@ -114,7 +118,7 @@ jobs:
       - name: Build all components (ESP-IDF v6.1, ESP32-C3)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          esp_idf_version: v6.1
+          esp_idf_version: v6.1.1
           target: esp32c3
           path: .
           command: tools/idf-build.sh tests/idf-build esp32c3 build-idf6
@@ -124,7 +128,7 @@ jobs:
       - name: Build all components with Log V2 (ESP-IDF v6.1, ESP32-C3)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          esp_idf_version: v6.1
+          esp_idf_version: v6.1.1
           target: esp32c3
           path: .
           command: >-

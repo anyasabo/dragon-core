@@ -19,23 +19,26 @@ jobs:
     # Run each libFuzzer harness for 60 s. If a harness finds a crash, the job
     # fails and uploads the input that caused it.
     runs-on: ubuntu-latest
+    container: ubuntu:26.10
     steps:
       # libFuzzer and the sanitizer runtimes are in libclang-rt-dev. With
       # --no-install-recommends, apt does not install it with clang.
       - name: Install clang
+        # clang needs the libstdc++ headers of the newest GCC. Without
+        # libstdc++-16-dev it selects GCC 15 and warns (-Wgcc-install-dir-libstdcxx).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang libclang-rt-dev
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git gcc-16 libstdc++-16-dev clang libclang-rt-dev libc6-dev
 
       - name: Check out source
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Fuzz the parsers
         run: tests/run_fuzz.sh 60
 
       - name: Upload crash inputs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-artifacts
           path: /tmp/dragon-core-fuzz/artifacts-*
