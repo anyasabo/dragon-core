@@ -87,7 +87,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git python3 gcc-16 libstdc++-16-dev libc6-dev
-          case "$CC" in clang-*) sh tools/ci/install-llvm.sh "$CC" | tail -1 ;; esac
+          case "$CC" in clang-*) sh tools/ci/install-llvm.sh "$CC" ;; esac
 
       - name: Run host tests with sanitizers
         run: |

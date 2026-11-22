@@ -1,5 +1,7 @@
 # dragon-core
 
+> **This is the fork [anyasabo/dragon-core](https://github.com/anyasabo/dragon-core)** of [justinh-rahb/dragon-core](https://github.com/justinh-rahb/dragon-core). It holds the dragon-core changes of the DragonBreath fork: security fixes for the setup portal, syslog, SNTP, ESP-IDF v6 support, fuzzers and CI. `fork` is the published branch, and `main` equals upstream. [docs/FORK.md of the DragonBreath fork](https://github.com/anyasabo/DragonBreath/blob/fork/docs/FORK.md) lists each change and its upstream status.
+
 Shared, board-neutral ESP-IDF components for the Dragon firmware family.
 Product repositories own GPIO mappings, sensors, actuators, safety policy, and their
 `dc_device` implementation. This repository owns reusable transport and service code.

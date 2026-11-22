@@ -32,7 +32,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git gcc-16 libstdc++-16-dev libc6-dev
-          sh tools/ci/install-llvm.sh 23 | tail -1
+          sh tools/ci/install-llvm.sh 23
 
       - name: Fuzz the parsers
         run: tests/run_fuzz.sh 60
