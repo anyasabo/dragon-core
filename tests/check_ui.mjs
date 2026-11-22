@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import "./check_ui_manual_stop.mjs";
+import "./check_ui_dragonpwr.mjs";
 
 // The family dashboard/control UI is an embedded SPA, not a C string.
 const html = fs.readFileSync(
@@ -113,6 +114,26 @@ if (!/Zones do nothing in Manual\/Off\./.test(html)) {
   throw new Error("filament zones card must state that zones apply only in AUTO");
 }
 
+// Follow-bed edits reveal the chamber target immediately, without waiting for a
+// later SSE snapshot. AUTO status text must remain valid after a filament zone
+// takes over or an explicit Off zone holds heat off.
+if (!html.includes("touched.followBed=1;\n    if(last) renderAuto(last);")) {
+  throw new Error("follow-bed checkbox changes must render immediately from the last state");
+}
+for (const marker of [
+  "Engaged — chamber target is ",
+  "Armed — chamber heat is currently off.",
+  "armed · chamber heat off",
+]) {
+  if (!html.includes(marker)) throw new Error(`AUTO status must remain phase-accurate: ${marker}`);
+}
+for (const stale of [
+  "preheating to '+tgt+' °C until a filament zone is reported.",
+  "waiting for the printer bed to start heating.",
+]) {
+  if (html.includes(stale)) throw new Error(`stale AUTO phase text remains: ${stale}`);
+}
+
 // Common maintenance identity must render before descriptor compatibility or
 // capability gating can return/throw. This keeps diagnostics useful even when a
 // newer product descriptor reaches an older family SPA.
@@ -122,5 +143,26 @@ const schemaGate = html.indexOf("if(ui.schema!=null && ui.schema!==1) return", i
 if (infoStart < 0 || firmwareRender < infoStart || schemaGate < firmwareRender) {
   throw new Error("maintenance identity must render before descriptor gating");
 }
+
+
+for (const marker of [
+  "ui.product==='dragonpwr'",
+  'id="pwr-app"',
+  'id="pwr-mains"',
+  'id="pwr-usb"',
+  'id="pwr-controls"',
+  "function applyPwr(s)",
+  "!!pwrCaps.power_switch&&typeof a.mains==='boolean'",
+  "!!pwrCaps.usb_switch&&typeof a.usb1==='boolean'",
+  "'Output control unavailable. Physical output state has not been measured.'",
+  "product==='dragonpwr'?pwrSetConn(false):setConn(false)",
+]) {
+  if (!html.includes(marker)) throw new Error(`missing DragonPWR safe UI contract marker: ${marker}`);
+}
+// Shared view must stay read-only. Only the product-owned /power route
+// exposes output commands after capability checks, never from the SPA.
+const pwrSurface = html.slice(html.indexOf('id="pwr-app"'), html.indexOf('id="dc-provisioning"'));
+if (/<button[^>]*id="pwr-(?:mains|usb)[^"]*"/.test(pwrSurface))
+  throw new Error("DragonPWR SPA must not expose direct output commands");
 
 console.log("family SPA JavaScript and capability contract: PASS");
