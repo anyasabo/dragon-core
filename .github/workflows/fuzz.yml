@@ -19,8 +19,11 @@ jobs:
     # Run each libFuzzer harness for 60 s. If a harness finds a crash, the job
     # fails and uploads the input that caused it.
     runs-on: ubuntu-latest
-    container: ubuntu:26.10
+    container: ubuntu:26.10@sha256:1c2a84ae3f2a24aeb97cded5b41f0211b441662f1a188cbd2e139e7625f6f1d6
     steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       # libFuzzer and the sanitizer runtimes are in libclang-rt-dev. With
       # --no-install-recommends, apt does not install it with clang.
       - name: Install clang
@@ -28,10 +31,8 @@ jobs:
         # libstdc++-16-dev it selects GCC 15 and warns (-Wgcc-install-dir-libstdcxx).
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git gcc-16 libstdc++-16-dev clang libclang-rt-dev libc6-dev
-
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          apt-get install -y --no-install-recommends ca-certificates git gcc-16 libstdc++-16-dev libc6-dev
+          sh tools/ci/install-llvm.sh 23 | tail -1
 
       - name: Fuzz the parsers
         run: tests/run_fuzz.sh 60

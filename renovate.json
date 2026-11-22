@@ -1,0 +1,33 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Fork-only. Updates the actions (SHA pins), the container digests and the ESP-IDF versions of the fixture builds. The ESP Component Registry has no Renovate datasource.",
+  "extends": [
+    "config:best-practices",
+    ":semanticCommitsDisabled",
+    ":disableDependencyDashboard"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The ESP-IDF versions of the fixture builds",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": ["esp_idf_version: (?<currentValue>v\\d+\\.\\d+(?:\\.\\d+)?)\\n"],
+      "depNameTemplate": "espressif/esp-idf",
+      "datasourceTemplate": "github-releases"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The v5.3 fixture build checks the oldest supported ESP-IDF line: patch updates only",
+      "matchDepNames": ["espressif/esp-idf"],
+      "matchCurrentVersion": "/^v5\\.3/",
+      "allowedVersions": "<5.4"
+    },
+    {
+      "description": "Group the GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "groupName": "GitHub Actions"
+    }
+  ]
+}
