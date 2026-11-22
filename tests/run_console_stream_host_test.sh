@@ -30,7 +30,7 @@ if source.count(single) != 1:
     raise SystemExit("mutation anchor changed; update negative control")
 Path(sys.argv[2]).write_text(source.replace(single, split))
 PY
-cc -std=c11 -Wall -Wextra -Werror -DDC_CONSOLE_STREAM_COUNT_CRITICAL \
+"${CC:-cc}" -std=c11 -Wall -Wextra -Werror -DDC_CONSOLE_STREAM_COUNT_CRITICAL \
   -I"$root/tests/stubs" \
   -I"$root/components/dc_evlog/include" \
   -I"$root/components/dc_portal" \
