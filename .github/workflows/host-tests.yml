@@ -109,7 +109,7 @@ jobs:
       - name: Build all components (ESP-IDF v5.3, ESP32-C3)
         uses: espressif/esp-idf-ci-action@9d38657f3d789ca759b2b37aaf5ceffbc42c4f0d # v1
         with:
-          esp_idf_version: v5.3
+          esp_idf_version: v5.3.6
           target: esp32c3
           path: .
           command: tools/idf-build.sh tests/idf-build esp32c3 build
